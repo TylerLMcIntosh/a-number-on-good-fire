@@ -54,7 +54,7 @@ data/*
 figs/*
 docs/*
 manuscript/*
-secrets/*
+config/secrets/*
 
 #RENV
 renv/library/
