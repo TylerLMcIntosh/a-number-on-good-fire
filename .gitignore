@@ -54,6 +54,7 @@ data/*
 figs/*
 docs/*
 manuscript/*
+secrets/*
 
 #RENV
 renv/library/
