@@ -1,117 +1,199 @@
-
-#' Install and Load Required Packages Using pak
+#' Install and Load Required Packages with Automatic pak Fallback
 #'
-#' This function checks if the specified packages (both CRAN and GitHub) are installed and loads them. 
-#' If any packages are missing, it installs them automatically.
-#' It uses the `pak` package for faster and more efficient package installation.
+#' Installs and loads CRAN and GitHub packages automatically.
+#' Uses pak if available and functional, falls back to base installers otherwise.
 #'
-#' @param package_list A list of package names to check and install (non-string, e.g., `c(dplyr, here)`).
-#' GitHub packages should be specified as `username/repo` in strings.
-#' @param auto_install A character ("y" or "n", default is "n"). If "y", installs all required packages 
-#' without asking for user permission. If "n", asks for permission from the user.
-#' @return No return value. Installs and loads the specified packages as needed.
+#' @param package_list A character vector of package names. GitHub packages should be "user/repo".
+#' @return NULL
 #' @examples
-#' \dontrun{
-#' install_and_load_packages(c(dplyr, here, "username/repo"))
-#' }
-#' @importFrom pak pkg_install
-#' @export
-install_and_load_packages <- function(package_list, auto_install = "n") {
-  # Convert non-string package names to strings
-  package_list <- lapply(package_list, function(pkg) {
-    if (is.symbol(pkg)) {
-      deparse(substitute(pkg))
-    } else {
-      pkg
-    }
-  })
-  
-  # # Check if 'renv' is installed; if not, skip the 'renv' check
-  # if (requireNamespace("renv", quietly = TRUE) && renv::is_active()) {
-  #   cat("renv is active. Only loading packages...\n")
-  #   for (pkg in package_list) {
-  #     package_name <- if (grepl("/", pkg)) unlist(strsplit(pkg, "/"))[2] else pkg
-  #     if (!require(package_name, character.only = TRUE)) {
-  #       cat("Failed to load package:", package_name, "\n")
-  #     }
-  #   }
-  #   return(invisible())
-  # }
-  
-  # Check if pak is installed; install if not
-  if (!requireNamespace("pak", quietly = TRUE)) {
-    cat("The 'pak' package is required for fast installation of packages, installing now.\n")
-    install.packages("pak")
+#' install_and_load_packages(c("dplyr", "sf", "user/repo"))
+install_and_load_packages <- function(package_list) {
+  # Ensure remotes is available for GitHub fallback
+  if (!requireNamespace("remotes", quietly = TRUE)) {
+    install.packages("remotes")
   }
   
-  # Initialize lists to store missing CRAN and GitHub packages
-  missing_cran_packages <- c()
-  missing_github_packages <- c()
+  # Classify packages
+  missing_cran <- c()
+  missing_github <- c()
   
-  # # Helper function to get user input
-  # get_user_permission <- function(prompt_msg) {
-  #   if (auto_install == "y") {
-  #     return("y")
-  #   } else {
-  #     return(tolower(readline(prompt = prompt_msg)))
-  #   }
-  # }
-  
-  # Check for missing packages
   for (pkg in package_list) {
-    if (grepl("/", pkg)) { # GitHub package
-      package_name <- unlist(strsplit(pkg, "/"))[2]
-      package_loaded <- require(package_name, character.only = TRUE, quietly = TRUE)
-    } else { # CRAN package
-      package_loaded <- require(pkg, character.only = TRUE, quietly = TRUE)
-    }
-    if (!package_loaded) {
-      if (grepl("/", pkg)) {
-        missing_github_packages <- c(missing_github_packages, pkg)
+    is_github <- grepl("/", pkg)
+    pkg_name <- if (is_github) strsplit(pkg, "/")[[1]][2] else pkg
+    
+    if (!requireNamespace(pkg_name, quietly = TRUE)) {
+      if (is_github) {
+        missing_github <- c(missing_github, pkg)
       } else {
-        missing_cran_packages <- c(missing_cran_packages, pkg)
+        missing_cran <- c(missing_cran, pkg)
       }
     }
   }
   
-  # Install missing CRAN packages using pak::pkg_install
-  if (length(missing_cran_packages) > 0) {
-    # cat("The following CRAN packages are missing: ", paste(missing_cran_packages, collapse = ", "), "\n")
-    # response <- get_user_permission("\nDo you want to install the missing CRAN packages? (y/n): ")
-    # if (response == "y") {
-      pak::pkg_install(missing_cran_packages, upgrade = TRUE)
-    # } else {
-    #   cat("Skipping installation of missing CRAN packages.\n")
-    # }
+  # pak installer fallback
+  try_pak_install <- function(pkgs) {
+    tryCatch({
+      if (!requireNamespace("pak", quietly = TRUE)) install.packages("pak")
+      pak::pkg_install(pkgs, upgrade = TRUE)
+      TRUE
+    }, error = function(e) {
+      message("pak::pkg_install() failed: ", conditionMessage(e))
+      FALSE
+    })
   }
   
-  # Install missing GitHub packages using pak::pkg_install
-  if (length(missing_github_packages) > 0) {
-    # cat("The following GitHub packages are missing: ", paste(missing_github_packages, collapse = ", "), "\n")
-    # response <- get_user_permission("\nDo you want to install the missing GitHub packages? (y/n): ")
-    # if (response == "y") {
-      pak::pkg_install(missing_github_packages, upgrade = TRUE)
-    # } else {
-    #   cat("Skipping installation of missing GitHub packages.\n")
-    # }
+  fallback_cran <- function(pkgs) {
+    install.packages(pkgs)
   }
   
-  # Load all packages after checking for installation
+  fallback_github <- function(pkgs) {
+    for (repo in pkgs) {
+      tryCatch({
+        remotes::install_github(repo)
+      }, error = function(e) {
+        message("Failed to install GitHub repo ", repo, ": ", conditionMessage(e))
+      })
+    }
+  }
+  
+  # Install CRAN packages
+  if (length(missing_cran) > 0) {
+    if (!try_pak_install(missing_cran)) fallback_cran(missing_cran)
+  }
+  
+  # Install GitHub packages
+  if (length(missing_github) > 0) {
+    if (!try_pak_install(missing_github)) fallback_github(missing_github)
+  }
+  
+  # Load all packages
   for (pkg in package_list) {
-    if (grepl("/", pkg)) { # GitHub package
-      package_name <- unlist(strsplit(pkg, "/"))[2]
-      if (!require(package_name, character.only = TRUE)) {
-        cat("Failed to load GitHub package:", package_name, "\n")
-      }
-    } else { # CRAN package
-      if (!require(pkg, character.only = TRUE)) {
-        cat("Failed to load CRAN package:", pkg, "\n")
-      }
-    }
+    pkg_name <- if (grepl("/", pkg)) strsplit(pkg, "/")[[1]][2] else pkg
+    tryCatch({
+      library(pkg_name, character.only = TRUE)
+    }, error = function(e) {
+      message("Failed to load ", pkg_name, ": ", conditionMessage(e))
+    })
   }
   
-  cat("All specified packages installed and loaded.\n")
+  invisible(NULL)
 }
+
+
+#' 
+#' #' Install and Load Required Packages Using pak
+#' #'
+#' #' This function checks if the specified packages (both CRAN and GitHub) are installed and loads them. 
+#' #' If any packages are missing, it installs them automatically.
+#' #' It uses the `pak` package for faster and more efficient package installation.
+#' #'
+#' #' @param package_list A list of package names to check and install (non-string, e.g., `c(dplyr, here)`).
+#' #' GitHub packages should be specified as `username/repo` in strings.
+#' #' @param auto_install A character ("y" or "n", default is "n"). If "y", installs all required packages 
+#' #' without asking for user permission. If "n", asks for permission from the user.
+#' #' @return No return value. Installs and loads the specified packages as needed.
+#' #' @examples
+#' #' \dontrun{
+#' #' install_and_load_packages(c(dplyr, here, "username/repo"))
+#' #' }
+#' #' @importFrom pak pkg_install
+#' #' @export
+#' install_and_load_packages <- function(package_list, auto_install = "n") {
+#'   # Convert non-string package names to strings
+#'   package_list <- lapply(package_list, function(pkg) {
+#'     if (is.symbol(pkg)) {
+#'       deparse(substitute(pkg))
+#'     } else {
+#'       pkg
+#'     }
+#'   })
+#'   
+#'   # # Check if 'renv' is installed; if not, skip the 'renv' check
+#'   # if (requireNamespace("renv", quietly = TRUE) && renv::is_active()) {
+#'   #   cat("renv is active. Only loading packages...\n")
+#'   #   for (pkg in package_list) {
+#'   #     package_name <- if (grepl("/", pkg)) unlist(strsplit(pkg, "/"))[2] else pkg
+#'   #     if (!require(package_name, character.only = TRUE)) {
+#'   #       cat("Failed to load package:", package_name, "\n")
+#'   #     }
+#'   #   }
+#'   #   return(invisible())
+#'   # }
+#'   
+#'   # Check if pak is installed; install if not
+#'   if (!requireNamespace("pak", quietly = TRUE)) {
+#'     cat("The 'pak' package is required for fast installation of packages, installing now.\n")
+#'     install.packages("pak")
+#'   }
+#'   
+#'   # Initialize lists to store missing CRAN and GitHub packages
+#'   missing_cran_packages <- c()
+#'   missing_github_packages <- c()
+#'   
+#'   # # Helper function to get user input
+#'   # get_user_permission <- function(prompt_msg) {
+#'   #   if (auto_install == "y") {
+#'   #     return("y")
+#'   #   } else {
+#'   #     return(tolower(readline(prompt = prompt_msg)))
+#'   #   }
+#'   # }
+#'   
+#'   # Check for missing packages
+#'   for (pkg in package_list) {
+#'     if (grepl("/", pkg)) { # GitHub package
+#'       package_name <- unlist(strsplit(pkg, "/"))[2]
+#'       package_loaded <- require(package_name, character.only = TRUE, quietly = TRUE)
+#'     } else { # CRAN package
+#'       package_loaded <- require(pkg, character.only = TRUE, quietly = TRUE)
+#'     }
+#'     if (!package_loaded) {
+#'       if (grepl("/", pkg)) {
+#'         missing_github_packages <- c(missing_github_packages, pkg)
+#'       } else {
+#'         missing_cran_packages <- c(missing_cran_packages, pkg)
+#'       }
+#'     }
+#'   }
+#'   
+#'   # Install missing CRAN packages using pak::pkg_install
+#'   if (length(missing_cran_packages) > 0) {
+#'     # cat("The following CRAN packages are missing: ", paste(missing_cran_packages, collapse = ", "), "\n")
+#'     # response <- get_user_permission("\nDo you want to install the missing CRAN packages? (y/n): ")
+#'     # if (response == "y") {
+#'       pak::pkg_install(missing_cran_packages, upgrade = TRUE)
+#'     # } else {
+#'     #   cat("Skipping installation of missing CRAN packages.\n")
+#'     # }
+#'   }
+#'   
+#'   # Install missing GitHub packages using pak::pkg_install
+#'   if (length(missing_github_packages) > 0) {
+#'     # cat("The following GitHub packages are missing: ", paste(missing_github_packages, collapse = ", "), "\n")
+#'     # response <- get_user_permission("\nDo you want to install the missing GitHub packages? (y/n): ")
+#'     # if (response == "y") {
+#'       pak::pkg_install(missing_github_packages, upgrade = TRUE)
+#'     # } else {
+#'     #   cat("Skipping installation of missing GitHub packages.\n")
+#'     # }
+#'   }
+#'   
+#'   # Load all packages after checking for installation
+#'   for (pkg in package_list) {
+#'     if (grepl("/", pkg)) { # GitHub package
+#'       package_name <- unlist(strsplit(pkg, "/"))[2]
+#'       if (!require(package_name, character.only = TRUE)) {
+#'         cat("Failed to load GitHub package:", package_name, "\n")
+#'       }
+#'     } else { # CRAN package
+#'       if (!require(pkg, character.only = TRUE)) {
+#'         cat("Failed to load CRAN package:", pkg, "\n")
+#'       }
+#'     }
+#'   }
+#'   
+#'   cat("All specified packages installed and loaded.\n")
+#' }
 
 
 #' Access MTBS CONUS Polygons
