@@ -220,33 +220,78 @@ access_data_mtbs_conus <- function() {
   return(mtbs)
 }
 
-
-#' Read CSV from Google Drive Path
+#' Read a CSV File from Google Drive
 #'
-#' This function reads a CSV file directly from a specified Google Drive path using the `googledrive` package. It first retrieves the file using the provided path and then reads the content into a data frame.
+#' Downloads and reads a CSV file from a specified Google Drive folder using the file name.
+#' This function is SIGNIFICANTLY faster than the original function
 #'
-#' @param path A character string specifying the Google Drive path to the CSV file. The path can be a file ID, URL, or a full path to the file.
+#' This function locates a file by name within a Google Drive folder, retrieves its file ID,
+#' reads its content as a string, and converts it into a data frame.
+#'
+#' @param drive_folder A character string. The path to the Google Drive folder (can be a name or ID).
+#' @param file_name A character string. The exact name of the file to be read from the Drive folder.
+#'
 #' @return A data frame containing the contents of the CSV file.
-#' @details The function uses the `googledrive` package to access Google Drive files. Ensure that you have authenticated with Google Drive using `googledrive::drive_auth()` before using this function.
+#' @export
+#'
+#' @importFrom googledrive drive_ls drive_get drive_read_string as_id
+#' @importFrom dplyr filter pull
+#'
 #' @examples
 #' \dontrun{
-#' # Example usage:
-#' csv_data <- access_data_read_csv_from_gdrive("your-file-id-or-url")
-#' head(csv_data)
+#' df <- read_csv_from_gdrive_v2("my-folder", "my-file.csv")
 #' }
-#' @importFrom googledrive drive_get drive_read_string
-#' @export
-read_csv_from_gdrive <- function(path) {
-  # Retrieve the file metadata from Google Drive
-  f <- googledrive::drive_get(path)
+read_csv_from_gdrive_v2 <- function(drive_folder, file_name) {
+  # Get file ID
+  folder_contents <- googledrive::drive_ls(path = drive_folder)
+  id <- folder_contents |>
+    dplyr::filter(name == file_name) |>
+    dplyr::pull(id)
   
-  # Read the content of the file as a string and convert it to a data frame
+  if (length(id) == 0) {
+    stop("File not found in specified Drive folder.")
+  } else {
+    message("File found: ", file_name)
+  }
+  
+  # Get file metadata
+  f <- googledrive::drive_get(googledrive::as_id(id))
+  
+  # Read the content of the file as a string and convert to data frame
   csv <- f |>
     googledrive::drive_read_string() %>%
     read.csv(text = .)
   
   return(csv)
 }
+
+
+#' #' Read CSV from Google Drive Path - DEPRECATED, USE V2
+#' #'
+#' #' This function reads a CSV file directly from a specified Google Drive path using the `googledrive` package. It first retrieves the file using the provided path and then reads the content into a data frame.
+#' #'
+#' #' @param path A character string specifying the Google Drive path to the CSV file. The path can be a file ID, URL, or a full path to the file.
+#' #' @return A data frame containing the contents of the CSV file.
+#' #' @details The function uses the `googledrive` package to access Google Drive files. Ensure that you have authenticated with Google Drive using `googledrive::drive_auth()` before using this function.
+#' #' @examples
+#' #' \dontrun{
+#' #' # Example usage:
+#' #' csv_data <- access_data_read_csv_from_gdrive("your-file-id-or-url")
+#' #' head(csv_data)
+#' #' }
+#' #' @importFrom googledrive drive_get drive_read_string
+#' #' @export
+#' read_csv_from_gdrive <- function(path) {
+#'   # Retrieve the file metadata from Google Drive
+#'   f <- googledrive::drive_get(path)
+#'   
+#'   # Read the content of the file as a string and convert it to a data frame
+#'   csv <- f |>
+#'     googledrive::drive_read_string() %>%
+#'     read.csv(text = .)
+#'   
+#'   return(csv)
+#' }
 
 #' Write Shapefile to a New Directory and Create a Zipped Version
 #'
