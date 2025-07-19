@@ -17,13 +17,13 @@ if(!requireNamespace("here", quietly = TRUE)) {
 }
 library(here)
 
-source(here::here("code", "functions.R"))
+source(here::here("utils", "functions.R"))
 
 ##################################
 ###### USER FILLED OUT PARAMETERS ##################################
 driveFolder <- "GEE_Exports" #The drive folder you exported data to from GEE
 operatingUnits <- "Hectares" #either 'Hectares' or 'Acres'
-rasterForVizF <- "gf_data_raster_2010_2020_California.tif" # The name of the visualization raster in GDrive that you want to use for case study pull out
+rasterForVizF <- "gf_data_flatraster_california_2010_2020.tif" # The name of the visualization raster in GDrive that you want to use for case study pull out
 caseStudyID <- "CA3966012280920200817"
 
 # Color scheme
@@ -69,10 +69,11 @@ install_and_load_packages(c(
 
 
 #Ensure necessary directories are created
-# figsDir <- here::here("figs")
-# dir_ensure(figsDir)
-figsDir <- here::here("figs_no_reburn")
+figsDir <- here::here("figs")
 dir_ensure(figsDir)
+figsDir2 <- here::here("figs_v2")
+dir_ensure(figsDir2)
+figsDir <- figsDir2
 
 derivedDatDir <- here::here("data", "derived")
 dir_ensure(derivedDatDir)
@@ -86,20 +87,18 @@ dir_ensure(derivedDatDir)
 
 ```{r}
 
-driveFolder <- "GEE_Exports" # The operating google drive folder
 epsg <- "EPSG:4326" #use WGS 84 for visualization
 
 #RX & GF summarized by state
-rxData <- readr::read_csv(here::here('data', 'derived', "rx_state_summary.csv")) #from b02
-#gfData <- readr::read_csv(here::here('data', 'derived', 'gf_data_combined_states_2010_2020.csv')) #from a03
-gfData <- readr::read_csv(here::here('data', 'derived', 'gf_data_combined_states_no_reburn_v1_2010_2020.csv'))
+rxData <- readr::read_csv(here::here('data', 'derived', "twig_rx_state_summary_2010_2020.csv")) #from b02
+gfData <- readr::read_csv(here::here('data', 'derived', 'gf_data_combined_states_welty_wildfire_2010_2020.csv'))
 
 # Prepped rx spatial data (b02)
-rxSpatial <- sf::st_read(here::here(derivedDatDir, 'nfpors_filtered_ready_for_analysis.gpkg')) |>
+rxSpatial <- sf::st_read(here::here(derivedDatDir, 'twig_gee_filtered_ready_for_analysis.gpkg')) |>
   sf::st_transform(sf::st_crs(epsg))
 
 # Prepped gf spatial data (a03)
-gfSpatial <- sf::st_read(here::here(derivedDatDir, 'merged_goodfire_final.gpkg')) |>
+gfSpatial <- sf::st_read(here::here(derivedDatDir, 'merged_goodfire_final_states_welty_wildfire.gpkg')) |>
   sf::st_transform(sf::st_crs(epsg))
 
 ```
@@ -120,8 +119,9 @@ rxData <- rxData |>
   dplyr::mutate(rxBurnArea = rxBurnArea * unitConversion,
                 units = operatingUnits)
 gfData <- gfData |>
+  dplyr::relocate(unmatchedRegime, .after = totalArea) |>
   dplyr::relocate(yearPriorForest, .after = totalArea) |>
-  dplyr::mutate(across(cbiAnyBurned:yearPriorForest, ~ . * unitConversion),
+  dplyr::mutate(across(frg1Good:yearPriorForest, ~ . * unitConversion),
                 units = operatingUnits)
 
 gfSpatial <- gfSpatial |>
