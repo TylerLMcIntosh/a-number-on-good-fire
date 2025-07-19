@@ -4,11 +4,12 @@ if(!requireNamespace("here", quietly = TRUE)) {
 }
 library(here)
 
-source(here::here("code", "functions.R"))
+source(here::here("utils", "functions.R"))
 
 install_and_load_packages(c("googledrive",
                                   "purrr",
                                   "here",
+                            "tigris",
                                   "tidyverse",
                                   "sf"))
 
@@ -20,6 +21,8 @@ install_and_load_packages(c("googledrive",
 driveFolder <- 'GEE_Exports'
 derivedDatDir <- here::here("data", "derived")
 epsg <- 5070
+all_yrs_in_dataset <- seq(1986, 2023)
+years_of_interest <- seq(2010, 2020)
 
 ##################################################
 
@@ -30,22 +33,22 @@ epsg <- 5070
 # polys :: the set of polygons to summarize by
 # grpAttribute :: the name of the polygon attribute to use for summarizing, etc (should be a name of a column in the polygon set, as a character) e.g. "NAME"
 create.rx.summary <- function(polys, grpAttribute) {
-  allYrs <- seq(2010, 2020)
+  allYrs <- all_yrs_in_dataset
   uniquePolys <- unique(polys[[grpAttribute]])
   combos <- expand.grid(year = allYrs, grpAttribute = uniquePolys) |>
     setNames(c("year", as.character(substitute(grpAttribute))))
   
-  rxSummary <- nfporsInterest |>
+  rxSummary <- rxInterest |>
     sf::st_join(polys, join = sf::st_within) |>
-    dplyr::group_by(!!rlang::sym(grpAttribute), ACTUALCOMPLETIONYEARNEW, FRGDescription) |>
+    dplyr::group_by(!!rlang::sym(grpAttribute), treatment_year, FRGDescription) |>
     dplyr::summarise(rxBurnHa = sum(TOTALACCOMPLISHMENT_HA),
                      nEvents = n()) |>
-    dplyr::rename(year = ACTUALCOMPLETIONYEARNEW) |>
+    dplyr::rename(year = treatment_year) |>
     dplyr::filter(!is.na({{grpAttribute}})) |>
     sf::st_drop_geometry() |>
     dplyr::mutate(rxBurnArea = rxBurnHa * 10000) |>
-    mutate(units = "m^2") |>
-    select(-rxBurnHa)
+    mutate(units = "m^2") #|>
+  #select(-rxBurnHa)
   
   rxSummary <- combos %>%
     dplyr::left_join(rxSummary, by = c('year', grpAttribute)) %>%
@@ -55,38 +58,32 @@ create.rx.summary <- function(polys, grpAttribute) {
   return(rxSummary)
 }
 
-
 # OPERATE ----
 
 ## Read in and merge rx datasets ----
 
 # Read in RX data from GDrive & write local if not already acquired
-localRxPath <- here::here(derivedDatDir, 'gee_nfpors_lcms_lcmap.csv')
+rxNm <- 'gee_twig_rx_lcms_lcmap.csv'
+localRxPath <- here::here(derivedDatDir, rxNm)
 if(!file.exists(localRxPath)) {
-  rxGDrivePath <- paste0("~/", driveFolder, "gee_nfpors_lcms_lcmap.csv")
-  geeNfporsDats <- read_csv_from_gdrive(rxGDrivePath)
-  write_csv(geeNfporsDats, localRxPath)
+  rx_dats <- read_csv_from_gdrive_v2(drive_folder = driveFolder, file_name = rxNm)
+  write_csv(csv, localRxPath)
 } else {
-  geeNfporsDats <- readr::read_csv(here::here('data', 'derived', 'gee_nfpors_lcms_lcmap.csv'))
+  rx_dats <- readr::read_csv(localRxPath)
 }
 
 
 # Clean new data
-geeNfporsDats <- geeNfporsDats |>
-  dplyr::select(-`.geo`, -`system:index`)
+rx_dats <- rx_dats |>
+  dplyr::select(-`.geo`, -`system.index`)
 
-# Load raw NFPORS RX data
-nfpors <- sf::st_read(here::here('data', 'raw', 'NFPORS_WestStates_2010_2021', 'NFPORS_WestStates_2010_2021.gdb'),
-                      layer = "West_NFPORS_2010_2021") |>
-  dplyr::filter(!is.na(ACTUALCOMPLETIONDATE)) #ensure all included burns were actually done
+# Load processed twig gpkg
+twig_intentional_filtered <- sf::st_read(here::here(derivedDatDir, "twig_planned_ignition_no_dup_west.gpkg"))
+twig_intentional_filtered_centroids <- twig_intentional_filtered |>
+  sf::st_centroid(of_largest_polygon = TRUE)
+twig_rx <- twig_intentional_filtered_centroids |>
+  sf::st_transform(epsg)
 
-#Manipulate raw NFPORS
-unique(nfpors$TYPENAME)
-unique(nfpors$actualcompletionyear)
-unique(lubridate::year(as.Date(nfpors$ACTUALCOMPLETIONDATE)))
-#actualcompletionyear has a few errors; make new one from the good data
-nfpors <- nfpors %>%
-  dplyr::mutate(ACTUALCOMPLETIONYEARNEW = lubridate::year(as.Date(ACTUALCOMPLETIONDATE)))
 
 
 # Create contextual data for understanding GEE RX outputs
@@ -141,43 +138,52 @@ frgClasses <- cbind(
   dplyr::mutate(FRG = as.double(FRG))
 
 
-#Join together and add column with land cover in burn year & landcover name, as well as FRG full name
-nfporsWithGEE <- nfpors |>
-  dplyr::mutate(PointId = objectid__) |>
-  dplyr::left_join(geeNfporsDats, by = c("PointId")) |>
-  dplyr::mutate(LCMSIndex = paste0("LandCover_LCMS_", (ACTUALCOMPLETIONYEARNEW - 1)),
-                LCMAPIndex = paste0("LandCover_LCMAP_", (ACTUALCOMPLETIONYEARNEW - 1))) |> #THIS AND NEXT TWO LINES DO ROWWISE COMPUTE FOR THE LC_BURNYEAR
-  dplyr::rowwise() |>
-  dplyr::mutate(LCMS_PreBurnYear = get(LCMSIndex),
-                LCMAP_PreBurnYear = get(LCMAPIndex)) |>
-  dplyr::ungroup() |>
-  as.data.frame() |>
-  dplyr::left_join(lcmsClasses, by = c("LCMS_PreBurnYear" = "LCMS_LandCover_Code")) |> #join lcms landcover descriptions
+# Generate column names for each row
+twig_rx <- twig_rx |>
+  dplyr::mutate(
+    LCMS_col = paste0("LandCover_LCMS_", treatment_year - 1),
+    LCMAP_col = paste0("LandCover_LCMAP_", treatment_year - 1)
+  )
+
+# Join in the raster data (rx_dats)
+rx_joined <- twig_rx |>
+  dplyr::left_join(rx_dats, by = "unique_id")
+
+# Safely extract the values using mapply
+rx_joined$LCMS_PreBurnYear <- mapply(function(row, col) {
+  if (col %in% names(rx_joined)) rx_joined[[col]][row] else NA_real_
+}, seq_len(nrow(rx_joined)), rx_joined$LCMS_col)
+
+rx_joined$LCMAP_PreBurnYear <- mapply(function(row, col) {
+  if (col %in% names(rx_joined)) rx_joined[[col]][row] else NA_real_
+}, seq_len(nrow(rx_joined)), rx_joined$LCMAP_col)
+
+# Final join with class descriptions
+rxWithGEE <- rx_joined |>
+  dplyr::left_join(lcmsClasses, by = c("LCMS_PreBurnYear" = "LCMS_LandCover_Code")) |>
   dplyr::left_join(lcmapClasses, by = c("LCMAP_PreBurnYear" = "LCMAP_LandCover_Code")) |>
-  dplyr::left_join(frgClasses, by = c("frcRcls" = "FRG")) |> #join FRG descriptions
-  dplyr::mutate(TOTALACCOMPLISHMENT_HA = TOTALACCOMPLISHMENT * 0.404686) #convert new HA column
+  dplyr::left_join(frgClasses, by = c("frcRcls" = "FRG")) |>
+  dplyr::mutate(TOTALACCOMPLISHMENT_HA = acres * 0.404686)
+
 
 #write out dataset
-readr::write_csv(nfporsWithGEE, here::here(derivedDatDir, "nfpors_with_gee_lcms_lcmap.csv"))
+readr::write_csv(rxWithGEE, here::here(derivedDatDir, "twig_rx_with_gee_lcms_lcmap.csv"))
+
 
 
 
 # Summarize RX numbers ----
 
-nfporsWithGee <- read_csv(here::here(derivedDatDir, "nfpors_with_gee_lcms_lcmap.csv"))
-nfpors <- sf::st_read(here::here("data", "raw", "West_NFPORS_2010_2021", "West_NFPORS_2010_2021.shp")) |>
-  sf::st_transform(epsg) 
+#Filter
+rxInterest <- rxWithGEE |>
+  dplyr::filter(
+    (LCMS_PreBurnYear == 1 & LCMAP_PreBurnYear == 4) |
+      (LCMS_PreBurnYear == 1 & is.na(LCMAP_PreBurnYear)) |
+      (is.na(LCMS_PreBurnYear) & LCMAP_PreBurnYear == 4)
+  )
 
 
-#Join the NFPORS GEE data back to the original points & filter
-nfporsInterest <- nfpors |>
-  dplyr::left_join(nfporsWithGee, by = c("PointId" = "objectid__")) |>
-  #dplyr::filter(FRGDescription == "frcLowMix"& ACTUALCOMPLETIONYEARNEW < 2021) |>
-  dplyr::filter(ACTUALCOMPLETIONYEARNEW < 2021) |>
-  dplyr::filter(LCMS_PreBurnYear == 1 & LCMAP_PreBurnYear == 4)
-
-
-sf::st_write(nfporsInterest, here::here(derivedDatDir, "nfpors_filtered_ready_for_analysis.gpkg"), append = FALSE)
+sf::st_write(rxInterest, here::here(derivedDatDir, "twig_gee_filtered_ready_for_analysis.gpkg"), append = FALSE)
 
 
 # Prep summarizing polygons
@@ -188,61 +194,12 @@ usa <- tigris::states() |>
   sf::st_transform(epsg)
 west <- usa[usa$STUSPS %in% c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT"),]  
 
-# Sparks
-sparkWatersheds <- sf::st_read(here::here('data', 'raw', 'SPARK-20240617T215254Z-001', 'SPARK', 'spark_watersheds.shp')) |>
-  dplyr::filter(SPARK != 'AK - Bristol Bay') |>
-  dplyr::filter(SPARK != 'BC - Bulkley Morice') |>
-  sf::st_transform(epsg) |>
-  dplyr::mutate(sparkWatershed = name)
-
-sparkWatershedsClean <- sparkWatersheds |>
-  dplyr::select(sparkWatershed)
-
-
-sparkCounties <- sf::st_read(here::here('data', 'raw', 'SPARK-20240617T215254Z-001', 'SPARK', 'spark_counties.shp')) |>
-  dplyr::filter(SPARK != 'AK - Bristol Bay') |>
-  dplyr::filter(SPARK != 'BC - Bulkley Morice') |>
-  sf::st_transform(epsg) |>
-  dplyr::mutate(sparkCounty = NAME)
-
-sparkCountiesClean <- sparkCounties |>
-  dplyr::select(sparkCounty)
-
-
-sparkEcoregions <- sf::st_read(here::here('data', 'raw', 'SPARK-20240617T215254Z-001', 'SPARK', 'spark_l4_ecoregions.shp')) |>
-  sf::st_transform(epsg) |>
-  dplyr::mutate(sparkEcoregion = US_L4CODE)
-
-sparkEcoregionsJoin <- sparkEcoregions |>
-  sf::st_drop_geometry() |>
-  dplyr::select(-Shape_Leng, -Shape_Area) |>
-  dplyr::distinct()
-
-sparkEcoregionsClean <- sparkEcoregions |>
-  dplyr::select(sparkEcoregion)
-
-
-
-# Create RX summaries by summarizing polygons
-
-#SPARKS
-rxCountySummary <- create.rx.summary(polys = sparkCountiesClean, "sparkCounty") |>
-  dplyr::left_join(sparkCounties, by = join_by(sparkCounty))
-write_csv(rxCountySummary, here::here('data', 'derived', "rx_spark_county_summary.csv"))
-
-rxWatershedSummary <- create.rx.summary(polys = sparkWatershedsClean, "sparkWatershed") |>
-  dplyr::left_join(sparkWatersheds, by = join_by(sparkWatershed))
-write_csv(rxWatershedSummary, here::here('data', 'derived', "rx_spark_watershed_summary.csv"))
-
-rxEcoregionsSummary <- create.rx.summary(polys = sparkEcoregionsClean, "sparkEcoregion") |>
-  dplyr::left_join(sparkEcoregionsJoin, by = join_by(sparkEcoregion))
-write_csv(rxEcoregionsSummary, here::here('data', 'derived', "rx_spark_ecoregion_summary.csv"))
-
-
 # STATES
 rxStateSummary <- create.rx.summary(polys = west, "NAME")
-write_csv(rxStateSummary, here::here('data', 'derived', "rx_state_summary.csv"))
+write_csv(rxStateSummary, here::here('data', 'derived', "twig_rx_state_summary_all.csv"))
 
-
+rxStateSummaryInterest <- rxStateSummary |>
+  filter(year %in% years_of_interest)
+write_csv(rxStateSummaryInterest, here::here('data', 'derived', paste0("twig_rx_state_summary_", min(years_of_interest), "_", max(years_of_interest), ".csv")))
 
 

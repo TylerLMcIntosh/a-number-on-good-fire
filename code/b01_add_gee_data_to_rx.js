@@ -6,25 +6,79 @@
 //This code adds land cover and fire regime data to a set of point features input by the user
 
 
-
 /////////////// IMPORT & MANAGE DATA ///////////////
 
 // USER-INPUT POINT FEATURES
-var nfpors = ee.FeatureCollection("projects/ee-tymc5571-goodfire/assets/West_NFPORS_2010_2021");
+var rx_pts = ee.FeatureCollection("projects/ee-tymc5571-goodfire/assets/twig_planned_ignition_no_dup_west_centroids_simple");
+Map.addLayer(rx_pts);
 
 // Load fire regime and land cover datasets
 var lcpri = ee.ImageCollection("projects/sat-io/open-datasets/LCMAP/LCPRI"),
     lcms = ee.ImageCollection("USFS/GTAC/LCMS/v2022-8"),
     frg = ee.ImageCollection("LANDFIRE/Fire/FRG/v1_2_0");
     
-    
 
-print("NFPORS", nfpors.size(), nfpors.limit(50));
+print("rx", rx_pts.size(), rx_pts.limit(50));
 
 // Filter the LCMS & LCMAP by image name containing "LCMS_CONUS",
 // to only include the Land Cover band, and to include the dates of interest
-var lcmsInterest = lcms.filter(ee.Filter.stringContains('system:index', 'LCMS_CONUS')).select("Land_Cover").filterDate('2009-01-01', '2021-12-31');
-var lcpriInterest = lcpri.filterDate('2009-01-01', '2021-12-31');
+// var lcmsInterest = lcms.filter(ee.Filter.stringContains('system:index', 'LCMS_CONUS')).select("Land_Cover").filterDate('2009-01-01', '2021-12-31');
+// var lcpriInterest = lcpri.filterDate('2009-01-01', '2021-12-31');
+
+// // Get unique treatment years and compute one year before
+// var treatmentYears = rx_pts.aggregate_array('trt_yr').distinct();
+// var preYears = treatmentYears.map(function(y) {
+//   return ee.Number(y).subtract(1);
+// });
+
+// // Function to check if an image's year is in preYears
+// var filterByYearList = function(image) {
+//   var year = ee.Date(image.get('system:time_start')).get('year');
+//   return preYears.contains(year);
+// };
+
+// // Filter LCMS and LCPRI
+// var lcmsInterest = lcms
+//   .filter(ee.Filter.stringContains('system:index', 'LCMS_CONUS'))
+//   .select("Land_Cover")
+//   .filter(filterByYearList);
+
+// var lcpriInterest = lcpri
+//   .filter(filterByYearList);
+  
+  
+  
+  
+  // Get list of treatment years and shift by -1 year
+var treatmentYears = rx_pts.aggregate_array('trt_yr').distinct();
+var preYears = treatmentYears.map(function(y) {
+  return ee.Number(y).subtract(1);
+});
+
+// Convert to list of integers for matching
+preYears = preYears.sort();  // Optional
+
+print(preYears);
+
+// Filter by year using filter() with OR-ed calendarRange filters
+var filterImagesByYears = function(collection, yearList) {
+  return ee.ImageCollection(
+    yearList.iterate(function(y, col) {
+      y = ee.Number(y);
+      col = ee.ImageCollection(col);
+      var yearly = collection.filter(ee.Filter.calendarRange(y, y, 'year'));
+      return col.merge(yearly);
+    }, ee.ImageCollection([]))
+  );
+};
+
+// Apply
+var lcmsInterest = filterImagesByYears(
+  lcms.filter(ee.Filter.stringContains('system:index', 'LCMS_CONUS')).select("Land_Cover"),
+  preYears
+);
+
+var lcpriInterest = filterImagesByYears(lcpri, preYears);
 
 print('lcms', lcmsInterest);
 print('lcmap', lcpriInterest);
@@ -110,17 +164,17 @@ var addMeanImageValues = function(image, collection, nm) {
 
 ///////////////// APPLY THE FUNCTIONS & CHECK OUTPUTS ////////////////
 
-var nfporsWithBoth = extractMeanCollectionValuesNamedByYear(nfpors, lcmsInterest, "LandCover_LCMS");
-nfporsWithBoth = extractMeanCollectionValuesNamedByYear(nfporsWithBoth, lcpriInterest, "LandCover_LCMAP");
-nfporsWithBoth = addMeanImageValues(frcRcl, nfporsWithBoth, "FRG");
-print('conservative forest FRG points', nfporsWithBoth.size(), nfporsWithBoth.limit(50));
+var rxWithBoth = extractMeanCollectionValuesNamedByYear(rx_pts, lcmsInterest, "LandCover_LCMS");
+rxWithBoth = extractMeanCollectionValuesNamedByYear(rxWithBoth, lcpriInterest, "LandCover_LCMAP");
+rxWithBoth = addMeanImageValues(frcRcl, rxWithBoth, "FRG");
+print('conservative forest FRG points', rxWithBoth.size(), rxWithBoth.limit(50));
 
 
 ///////////////////// Export /////////////////////
 
 Export.table.toDrive({
-  collection: nfporsWithBoth,
-  description: "gee_nfpors_lcms_lcmap",
+  collection: rxWithBoth,
+  description: "gee_twig_rx_lcms_lcmap",
   folder: "GEE_Exports",
   fileFormat: "CSV"
 });

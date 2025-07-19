@@ -1,0 +1,379 @@
+---
+title: "b00_rx_access_filter_twig"
+author: "Tyler L. McIntosh"
+date: last-modified
+format:
+  html:
+    embed-resources: true
+    html-math-method: katex
+    css: styles.css
+    toc: true
+    toc-depth: 1
+    toc-title: Contents
+    toc-location: right
+    code-fold: true
+    code-summary: "Show the code"
+---
+
+
+# Overview & Takeaways
+
+
+# Data overview
+
+# Setup
+
+```{r setup-chunk, message = FALSE, warning = FALSE}
+
+if(!requireNamespace("here", quietly = TRUE)) {
+  install.packages("here")
+}
+library(here)
+
+source(here::here("code", "functions.R"))
+
+install_and_load_packages(c("sf",
+                            "here",
+                            "httr",
+                            "glue",
+                            "patchwork",
+                            "tidyverse"))
+
+dir_raw <- here::here("data", "raw")
+dir_derived <- here::here("data", "derived")
+dir_ensure(c(dir_raw,
+           dir_derived))
+
+
+```
+
+
+# Access and unzip twig data
+
+```{r twig}
+
+#Download datasets
+twig_treatment_archive <- safe_download("https://sweri-treament-index.s3.us-west-2.amazonaws.com/treatment_index.zip",
+                          dest_dir = dir_raw,
+                          mode = "wb",
+                          timeout = 1000)
+
+twig_schema_archive <- safe_download("https://sweri-treament-index.s3.us-west-2.amazonaws.com/database_scaffolding.zip",
+                          dest_dir = dir_raw,
+                          mode = "wb",
+                          timeout = 1000)
+
+#Extract data archives
+extracted_twig_treatment_path <- safe_extract(
+   archive_path = twig_treatment_archive,
+   extract_to = dir_raw,
+   return_all_paths = FALSE)
+
+extracted_twig_schema_path <- safe_extract(
+   archive_path = twig_schema_archive,
+   extract_to = dir_raw,
+   return_all_paths = FALSE)
+
+#Examine GDB contents
+treatment_layers <- sf::st_layers(extracted_twig_treatment_path)
+schema_layers <- sf::st_layers(extracted_twig_schema_path)
+treatment_layers
+schema_layers
+
+twig_common_attributes <- sf::st_read(extracted_twig_schema_path,
+                                       layer = "common_attributes_lookup")
+twig_twig_categories <- sf::st_read(extracted_twig_schema_path,
+                                       layer = "twig_category_lookup")
+twig <- sf::st_read(extracted_twig_treatment_path,
+                                       layer = "treatment_index")
+
+```
+
+# Examine twig data
+
+```{r results='hide'}
+# 
+# names(twig)
+# 
+# unique(twig$date_source)
+# unique(twig$identifier_database)
+# unique(twig$twig_category)
+# unique(twig$activity)
+# unique(twig$type)
+# unique(twig$error)
+# unique(twig$category)
+
+```
+
+# Filter twig
+
+```{r filter-twig}
+
+# States of interest
+state_list <- c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT")
+
+#intentional ignitions
+rx_type_list <- c("Hand Pile Burn",
+                  "Machine Pile Burn",
+                  "Broadcast Burn",
+                  #"Fire Use", FIRE USE REMOVED FOR NOW DUE TO CONCERNS REGARDING DOUBLE-COUNTING
+                  "Jackpot Burn")
+
+twig_intentional_filtered <- twig |>
+  dplyr::filter((is.na(error) | 
+                  (error != "DUPLICATE-DROP" &
+                     error != "HIGH_COST;DUPLICATE-DROP")) &
+                state %in% state_list &
+                ((twig_category == "Planned Ignition" & 
+                   type == "N/A") |
+                   type %in% rx_type_list) &
+                !is.na(actual_completion_date)) |>
+  dplyr::mutate(treatment_year = lubridate::year(actual_completion_date)) |>
+  sf::st_make_valid()
+
+
+# After state_list filtering there are a few mistakes that remain; they appear to be typos either in the state abbreviation or in the lat/long fields. Manually remove these using state geometries
+states <- tigris::states() |>
+  sf::st_transform(sf::st_crs(twig))
+
+states_interest <- states |>
+  filter(STUSPS %in% state_list)
+
+twig_intentional_filtered <- twig_intentional_filtered |>
+  sf::st_filter(states_interest)
+
+
+```
+
+
+# create centroids version
+DOES NOT fix the overlap issue and re-calculate area -- this actually appears to be a fairly isolated issue in some of the National Parks.
+
+```{r}
+
+library(sf)
+library(dplyr)
+library(igraph)
+
+
+
+# # Step 1: Clean and transform
+# twig_intentional_filtered <- twig_intentional_filtered %>%
+#   mutate(name = na_if(name, "")) |>
+#   rename(geometry = shape)
+# st_geometry(twig_intentional_filtered) <- "geometry"
+# 
+# t_twig_intentional_filtered <- twig_intentional_filtered |> filter(state == "CO")
+# 
+# 
+# 
+# # Step 2: Prepare complete/incomplete spatial datasets
+# complete_sf <- twig_intentional_filtered %>%
+#   filter(!is.na(name), !is.na(type), !is.na(actual_completion_date)) %>%
+#   st_as_sf() %>%
+#   st_make_valid() %>%
+#   st_transform(5070)
+# 
+# incomplete_sf <- twig_intentional_filtered %>%
+#   filter(is.na(name) | is.na(type) | is.na(actual_completion_date)) %>%
+#   st_as_sf() %>%
+#   st_make_valid() %>%
+#   st_transform(5070)
+# 
+# # Step 3: Split grouped data
+# grouped <- complete_sf %>%
+#   group_by(name, type, actual_completion_date) %>%
+#   group_split()
+# 
+# single_groups <- grouped[sapply(grouped, nrow) == 1]
+# multi_groups  <- grouped[sapply(grouped, nrow) >  1]
+# 
+# # Step 4: Merging function for overlapping polygons
+# merge_group <- function(sf_group) {
+#   sf_group <- st_make_valid(sf_group)
+#   st_geometry(sf_group) <- "geometry"
+# 
+#   inters <- st_intersects(sf_group, sparse = TRUE)
+#   comps <- components(graph_from_adj_list(inters))$membership
+#   sf_group$component_id <- comps
+# 
+#   merged <- sf_group %>%
+#     group_by(name, type, actual_completion_date, component_id) %>%
+#     summarise(
+#       geometry = st_union(geometry),
+#       .groups = "drop"
+#     )
+# 
+#   st_as_sf(merged)
+# }
+# 
+# # Step 5: Apply merge only to multi-feature groups
+# merged_multi <- lapply(multi_groups, merge_group)
+# merged_multi <- merged_multi[!sapply(merged_multi, is.null)]
+# 
+# # Step 6: Combine all results
+# merged_sf <- bind_rows(c(single_groups, merged_multi))
+# 
+# # Step 7: Reattach incomplete rows
+# final_combined <- bind_rows(merged_sf, incomplete_sf)
+# 
+# # Step 8: Recalculate area fields
+# final_combined <- final_combined %>%
+#   mutate(
+#     gis_hectares = as.numeric(st_area(geometry)) / 10^4,
+#     gis_acres = gis_hectares * 2.47105
+#   )
+# t_final_combined <- final_combined |> filter(state == "CO")
+# t_twig_intentional_filtered <- twig_intentional_filtered |> filter(state == "CO")
+# 
+# mapview::mapview(t_final_combined, col.regions = "red") + mapview::mapview(t_twig_intentional_filtered)
+
+# Create centroids version
+twig_intentional_filtered_centroids <- twig_intentional_filtered |>
+  sf::st_centroid(of_largest_polygon = TRUE)
+
+```
+
+# Write
+
+```{r}
+
+sf::st_write(twig_intentional_filtered,
+             here::here(dir_derived, "twig_planned_ignition_no_dup_west.gpkg"),
+             append = FALSE)
+
+sf::st_write(twig_intentional_filtered,
+             here::here(dir_derived, "twig_planned_ignition_no_dup_west_centroids.gpkg"),
+             append = FALSE)
+st_write_shp(shp = twig_intentional_filtered_centroids |>
+               select(unique_id, treatment_year) |>
+               rename(trt_yr = treatment_year),
+             location = dir_derived,
+             filename = "twig_planned_ignition_no_dup_west_centroids_simple",
+             zip_only = TRUE,
+             overwrite = TRUE)
+
+```
+
+
+# Examining comparisons & data subsets
+
+
+```{r}
+# 
+# # Examine potential prescribed burning activities
+# #Prescribed burn activities
+# sort(unique(twig |>
+#   filter(type == "Broadcast Burn") |>
+#   pull(activity)))
+# 
+# #"Fire use" includes wildfire and wildland fire use... problematic?
+# sort(unique(twig |>
+#   filter(type == "Fire Use") |>
+#   pull(activity)))
+# 
+# sort(unique(twig |>
+#   filter(type == "Hand Pile Burn") |>
+#   pull(activity)))
+# 
+# sort(unique(twig |>
+#   filter(type == "Machine Pile Burn") |>
+#   pull(activity)))
+# 
+# sort(unique(twig |>
+#   filter(type == "Jackpot Burn") |>
+#   pull(activity)))
+# 
+# #What are the N/As in the planned and unplanned ignition?
+# sort(unique(twig |>
+#          filter(twig_category == "Unplanned Ignition") |>
+#          pull(type)))
+# 
+# ui_na <- twig |>
+#   filter(twig_category == "Unplanned Ignition" & type == "N/A") 
+# 
+# sort(unique(twig |>
+#          filter(twig_category == "Planned Ignition") |> #also includes planting?... weird
+#          pull(type)))
+# 
+# pi_na <- twig |>
+#   filter(twig_category == "Planned Ignition" & type == "N/A") 
+# 
+# pi_pl <- twig |>
+#   filter(twig_category == "Planned Ignition" & type == "Planting") 
+# 
+# # Examine FIRE USE category
+# 
+# 
+# rx_type_list <- c("Hand Pile Burn",
+#                   "Machine Pile Burn",
+#                   "Broadcast Burn",
+#                   "Fire Use",
+#                   "Jackpot Burn")
+# 
+# twig_intentional_filtered_2 <- twig |>
+#   dplyr::filter((is.na(error) | 
+#                   (error != "DUPLICATE-DROP" &
+#                      error != "HIGH_COST;DUPLICATE-DROP")) &
+#                 state %in% state_list &
+#                 ((twig_category == "Planned Ignition" & 
+#                    type == "N/A") |
+#                    type %in% rx_type_list) &
+#                 !is.na(actual_completion_date)) |>
+#   dplyr::mutate(treatment_year = lubridate::year(actual_completion_date)) |>
+#   sf::st_make_valid()
+# 
+# 
+# x <- twig_intentional_filtered_2 |> filter(type == "Fire Use")
+# mapview::mapview(x)
+# 
+# #Percent of acres in 'fire use'
+# all_twig_filt <- sum(twig_intentional_filtered_2$acres)
+# twig_filt_fire_use <- sum(x$acres)
+# (twig_filt_fire_use / all_twig_filt) * 100
+# 
+# z <- x |> filter(method == "Prescribed Burn")
+# zz <- x |> filter(activity == "Planned Treatment Burned in Wildfire")
+# 
+# 
+# xx <- x |>
+#   sf::st_drop_geometry() |>
+#   group_by(activity, method, type, equipment) |>
+#   summarize(n = n())
+# 
+# 
+# 
+# 
+# # Compare to TLM manual NFPORS/FACTS unified points
+# manually_done <- sf::st_read(here::here(dir_derived, "unified_nfpors_facts_rx_points_west_shareable_2000_2025.gpkg"))
+# manual_fire_use <- manually_done |> filter(typename == "Fire Use")
+# 
+# all_manual <- sum(manually_done$hectares, na.rm = TRUE) * 2.47
+# 
+# manual_fire_use <- sum(manual_fire_use$hectares, na.rm = TRUE) * 2.47
+# #Percent of acres in 'fire use' in manual dataset
+# (manual_fire_use / all_manual) * 100
+# 
+# 
+# # Area in manual vs TWIG-derived
+# # All-twig-manual contains more, but TWIG-derived polygons are 79%... TWIG has removal of duplicates but all_manual has those that are just points
+# all_twig_filt / all_manual
+
+
+```
+
+<button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne">
+
+Click to show R Session Information
+
+</button>
+
+:::: {#collapseOne .accordion-collapse .collapse}
+<div>
+
+```{r sessionInfo}
+sessionInfo()
+```
+
+</div>
+::::
