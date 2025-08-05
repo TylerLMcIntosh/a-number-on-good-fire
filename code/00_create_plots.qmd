@@ -121,7 +121,7 @@ rxData <- rxData |>
 gfData <- gfData |>
   dplyr::relocate(unmatchedRegime, .after = totalArea) |>
   dplyr::relocate(yearPriorForest, .after = totalArea) |>
-  dplyr::mutate(across(frg1Good:yearPriorForest, ~ . * unitConversion),
+  dplyr::mutate(across(cbiAnyBurned:yearPriorForest, ~ . * unitConversion),
                 units = operatingUnits)
 
 gfSpatial <- gfSpatial |>
@@ -468,6 +468,13 @@ allGoodOfTot <- (lowerSevNum + highSevNum) / totalWildfireNum * 100
 lowerSevGFRxCompare = ((lowerSevNum / rxArea) - 1) * 100
 allSevGFRxCompare = (((lowerSevNum + highSevNum) / rxArea) - 1) * 100
 
+tooFrequentOfAllBurns = sum(gfData$tooFrequent) / totalWildfireNum * 100
+tooFrequentOfGoodFire = sum(gfData$tooFrequent) / (lowerSevNum + highSevNum) * 100
+
+frg5lowmix = sum(gfData$frg5GoodLowMod)
+frg5high = sum(gfData$frg5GoodHigh)
+frg5lowmix/(frg5high + frg5lowmix)
+
 # RX details
 
 rxByFRG <- rxData |>
@@ -482,10 +489,10 @@ rxLowSevPerc <- ((rxByFRG |>
                   sum(rxByFRG$rxBurnArea)) * 100
 
 rxBroadcastOfLowSev <- (rxSpatial |>
-                          dplyr::group_by(FRGDescription, TYPENAME) |>
+                          dplyr::group_by(FRGDescription, type) |>
                           dplyr::summarise(tot_area = sum(TOTALACCOMPLISHMENT_FINAL)) |>
                           dplyr::filter(FRGDescription == "frcLowMix" &
-                                          TYPENAME == "Broadcast Burn") |>
+                                          type == "Broadcast Burn") |>
                           dplyr::pull(tot_area) / 
                         (rxByFRG |>
                         dplyr::filter(FRGDescription == "frcLowMix") |>

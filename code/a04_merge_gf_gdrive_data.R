@@ -141,5 +141,5 @@ allGFDats <- goodfireEventDatabase |>
     by = event_id_column
   ) |>
   filter(!is.na(`system.index`))
-sf::st_write(allGFDats, here::here("data", "derived", paste0("merged_goodfire_final_", summarizeName,".gpkg")))
+sf::st_write(allGFDats, here::here("data", "derived", paste0("merged_goodfire_final_", summarizeName,".gpkg")), append = FALSE)
 
