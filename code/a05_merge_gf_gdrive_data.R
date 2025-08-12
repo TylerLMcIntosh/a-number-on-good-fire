@@ -24,12 +24,12 @@ install_and_load_packages(c("googledrive",
 
 # INPUTS ----
 
-summarizeName <- 'states_welty_wildfire'  # CHANGE THIS TO MATCH summarizeName IN GEE SCRIPT 2_full-streamlined-good-fire
-eventsName <- 'welty_wildfire' # This should be the same as summarizeName, but without the summary appendix (i.e. the version name)
+summarizeName <- 'states_welty_wildfire_fri_splitfrg5'  # CHANGE THIS TO MATCH summarizeName IN GEE SCRIPT 2_full-streamlined-good-fire
+eventsName <- 'welty_wildfire_fri_splitfrg5' # This should be the same as summarizeName, but without the summary appendix (i.e. the version name)
 driveFolder <- 'GEE_Exports'     # MAKE SURE THAT THIS IS THE GDRIVE FOLDER YOU ARE USING. 'GEE_Exports' is the default for the export script
 earliestYear <- 2010
 latestYear <- 2020
-rawGFEventsDatabase <- 'welty_wildfire_1984_2020.gpkg'
+rawGFEventsDatabase <- 'welty_wildfire_west_1984_2020.gpkg'
 event_id_column <- "OBJECTID"
 
 ##### Run to authenticate gdrive access
@@ -129,7 +129,9 @@ if(file.exists(gfEventDataFl)) {
 
 # Raw GF events originally created
 goodfireEventDatabase <- sf::st_read(here::here("data", "derived", rawGFEventsDatabase)) |>
-  sf::st_transform(sf::st_crs("EPSG:5070"))
+  sf::st_transform(sf::st_crs("EPSG:5070")) |>
+  dplyr::filter(Fire_Year >= earliestYear & Fire_Year <= latestYear)
+  
 
 # Join the data and export
 allGFDats <- goodfireEventDatabase |>
@@ -141,5 +143,6 @@ allGFDats <- goodfireEventDatabase |>
     by = event_id_column
   ) |>
   filter(!is.na(`system.index`))
+
 sf::st_write(allGFDats, here::here("data", "derived", paste0("merged_goodfire_final_", summarizeName,".gpkg")), append = FALSE)
 

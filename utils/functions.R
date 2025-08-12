@@ -266,6 +266,55 @@ read_csv_from_gdrive_v2 <- function(drive_folder, file_name) {
 }
 
 
+
+#' Download a file from a Google Drive folder (fast listing)
+#'
+#' Lists the specified Google Drive folder, finds the file by exact name, and downloads it.
+#'
+#' @param drive_folder Character. Path or ID of the Google Drive folder.
+#' @param file_name Character. Exact file name inside the folder.
+#' @param local_path Character. Local path where the file will be saved.
+#' @param overwrite Logical. Overwrite local file if it exists? Default TRUE.
+#'
+#' @return Invisibly returns the local path.
+#' @export
+#'
+#' @importFrom googledrive drive_ls drive_download as_id
+#' @importFrom dplyr filter pull
+download_data_from_gdrive_v2 <- function(drive_folder, file_name, local_path, overwrite = TRUE) {
+  # Validate inputs
+  if (missing(drive_folder) || missing(file_name) || missing(local_path)) {
+    stop("'drive_folder', 'file_name', and 'local_path' must be provided.")
+  }
+  
+  # List folder contents once
+  folder_contents <- googledrive::drive_ls(path = drive_folder)
+  file_id <- folder_contents |>
+    dplyr::filter(.data$name == file_name) |>
+    dplyr::pull(.data$id)
+  
+  if (length(file_id) == 0) {
+    stop("File not found in specified Drive folder.")
+  } else if (length(file_id) > 1) {
+    warning("Multiple matches for file name; using the first one.")
+    file_id <- file_id[1]
+  }
+  
+  message("Downloading: ", file_name)
+  
+  # Ensure local directory exists
+  dir.create(dirname(local_path), recursive = TRUE, showWarnings = FALSE)
+  
+  # Download directly by ID
+  googledrive::drive_download(
+    file = googledrive::as_id(file_id),
+    path = local_path,
+    overwrite = isTRUE(overwrite)
+  )
+  
+  invisible(local_path)
+}
+
 #' #' Read CSV from Google Drive Path - DEPRECATED, USE V2
 #' #'
 #' #' This function reads a CSV file directly from a specified Google Drive path using the `googledrive` package. It first retrieves the file using the provided path and then reads the content into a data frame.
@@ -361,25 +410,191 @@ st_write_shp <- function(shp, location, filename, zip_only = FALSE, overwrite = 
 }
 
 
-#' Ensure Directory Exists
+#' Ensure Directories Exist
 #'
-#' This function checks if a directory exists at the specified path, and if not, creates a new directory.
+#' This function checks if one or more directories exist at the specified paths,
+#' and creates any that do not exist.
 #'
-#' @param path A character string specifying the path to the new directory.
-#' @return The function does not return any value. It creates a directory if it does not already exist.
+#' @param path A character string or a vector of strings specifying directory paths.
+#' @return A character vector of all directory paths that were checked/created.
 #' @examples
-#' # Ensure a directory named "data" exists
+#' # Ensure a single directory
 #' dir_ensure("data")
+#'
+#' # Ensure multiple directories
+#' dir_ensure(c("data", "output", "logs"))
 #'
 #' @export
 dir_ensure <- function(path) {
-  if (!dir.exists(path)) {
-    dir.create(path)
-    message("Directory created: ", path)
+  if (!is.character(path)) {
+    stop("`path` must be a character string or a vector of character strings.")
+  }
+  
+  created_paths <- character()
+  
+  for (p in path) {
+    if (!dir.exists(p)) {
+      tryCatch({
+        dir.create(p, recursive = TRUE)
+        message("Directory created: ", p)
+        created_paths <- c(created_paths, p)
+      }, error = function(e) {
+        warning("Failed to create directory: ", p, " — ", conditionMessage(e))
+      })
+    } else {
+      message("Directory already exists: ", p)
+    }
+  }
+  
+  return(invisible(path))
+}
+
+
+#' Safely Extract a ZIP or TAR Archive
+#'
+#' Handles both .zip and .tar(.gz) files. Supports skipping if files/folders exist,
+#' recursive extraction of nested archives, and optional cleanup.
+#'
+#' @param archive_path Character. Path to a .zip, .tar, or .tar.gz file.
+#' @param extract_to Character. Directory for extraction. Defaults to archive's directory.
+#' @param recursive Logical. Recursively extract nested archives? Defaults to FALSE.
+#' @param keep_archive Logical. Keep original and nested archives after extraction? Defaults to TRUE.
+#' @param full_contents_check Logical. If TRUE, skip extraction only if all files exist.
+#' @param return_all_paths Logical. If TRUE, return all extracted file paths;
+#'                          if FALSE, return all top-level files and directories.
+#'
+#' @return Character vector of extracted paths.
+#' @export
+safe_extract <- function(archive_path,
+                         extract_to = dirname(archive_path),
+                         recursive = FALSE,
+                         keep_archive = TRUE,
+                         full_contents_check = FALSE,
+                         return_all_paths = FALSE) {
+  # --- Validate inputs ---
+  if (!file.exists(archive_path)) stop("Archive does not exist: ", archive_path)
+  if (!dir.exists(extract_to)) dir.create(extract_to, recursive = TRUE)
+  
+  ext <- tolower(tools::file_ext(archive_path))
+  is_zip <- ext == "zip"
+  is_tar <- ext %in% c("tar", "gz", "tgz", "tar.gz")
+  
+  if (!is_zip && !is_tar) stop("Unsupported archive type: ", ext)
+  
+  # --- List archive contents ---
+  contents <- if (is_zip) {
+    utils::unzip(archive_path, list = TRUE)$Name
   } else {
-    message("Directory already exists: ", path)
+    utils::untar(archive_path, list = TRUE)
+  }
+  
+  # Determine top-level items
+  top_level_items <- unique(sub("^([^/]+).*", "\\1", contents))
+  top_level_paths <- file.path(extract_to, top_level_items)
+  
+  # --- Skip logic ---
+  skip_extract <- if (full_contents_check) {
+    all(file.exists(file.path(extract_to, contents)))
+  } else {
+    all(file.exists(top_level_paths))
+  }
+  
+  if (!skip_extract) {
+    tryCatch({
+      if (is_zip) {
+        unzip(archive_path, exdir = extract_to)
+      } else {
+        utils::untar(archive_path, exdir = extract_to)
+      }
+    }, error = function(e) stop("Extraction failed: ", e$message))
+    
+    # --- Recursive extraction ---
+    if (recursive) {
+      nested_archives <- list.files(extract_to, pattern = "\\.(zip|tar|gz|tgz)$", recursive = TRUE, full.names = TRUE)
+      nested_archives <- setdiff(nested_archives, archive_path)
+      for (na in nested_archives) {
+        safe_extract(na, dirname(na), recursive = recursive, keep_archive = keep_archive,
+                     full_contents_check = FALSE, return_all_paths = FALSE)
+        if (!keep_archive) unlink(na)
+      }
+    }
+    
+    if (!keep_archive) unlink(archive_path)
+  } else {
+    message("Skipping extract: Targets already exist in ", extract_to)
+  }
+  
+  # --- Return paths ---
+  if (return_all_paths) {
+    # Get full paths of extracted files
+    extracted_paths <- file.path(extract_to, contents)
+    extracted_files <- extracted_paths[file.exists(extracted_paths) & !file.info(extracted_paths)$isdir]
+    return(invisible(normalizePath(extracted_files, winslash = "/", mustWork = FALSE)))
+  } else {
+    paths <- file.path(extract_to, top_level_items)
+    return(invisible(normalizePath(paths[file.exists(paths)], winslash = "/", mustWork = FALSE)))
   }
 }
+
+
+
+#' Safely Download a File to a Directory
+#'
+#' Downloads a file from a URL to a specified directory, only if it doesn't already exist there.
+#'
+#' @param url Character. The URL to download from.
+#' @param dest_dir Character. The directory where the file should be saved.
+#' @param mode Character. Mode passed to `download.file()`. Default is "wb" (write binary).
+#' @param timeout Integer. Optional timeout in seconds. Will be reset afterward.
+#'
+#' @return A character string with the full path to the downloaded file.
+#'
+#' @importFrom utils download.file
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' path <- safe_download("https://example.com/data.zip", "data/")
+#' }
+safe_download <- function(url,
+                          dest_dir,
+                          mode = "wb",
+                          timeout = NA) {
+  # Validate input
+  if (!is.character(url) || length(url) != 1) stop("`url` must be a single character string.")
+  if (!is.character(dest_dir) || length(dest_dir) != 1) stop("`dest_dir` must be a single character string.")
+  
+  # Ensure destination directory exists
+  if (!dir.exists(dest_dir)) dir.create(dest_dir, recursive = TRUE)
+  
+  # Derive destination file path from URL and directory
+  filename <- basename(url)
+  destfile <- file.path(dest_dir, filename)
+  
+  # Skip download if file already exists
+  if (file.exists(destfile)) {
+    message("Skipping download: File already exists at ", destfile)
+    return(normalizePath(destfile, winslash = "/", mustWork = FALSE))
+  }
+  
+  # Handle optional timeout
+  original_timeout <- getOption("timeout")
+  if (!is.na(timeout) && timeout > original_timeout) {
+    options(timeout = timeout)
+    on.exit(options(timeout = original_timeout), add = TRUE)
+  }
+  
+  # Attempt to download
+  tryCatch({
+    download.file(url, destfile, mode = mode)
+    message("Downloaded: ", destfile)
+  }, error = function(e) {
+    stop("Failed to download file from URL: ", e$message)
+  })
+  
+  return(normalizePath(destfile, winslash = "/", mustWork = FALSE))
+}
+
 
 
 #' Convert R Color to Hexadecimal

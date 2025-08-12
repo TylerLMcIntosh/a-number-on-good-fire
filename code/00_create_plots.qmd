@@ -23,8 +23,10 @@ source(here::here("utils", "functions.R"))
 ###### USER FILLED OUT PARAMETERS ##################################
 driveFolder <- "GEE_Exports" #The drive folder you exported data to from GEE
 operatingUnits <- "Hectares" #either 'Hectares' or 'Acres'
-rasterForVizF <- "gf_data_flatraster_california_2010_2020.tif" # The name of the visualization raster in GDrive that you want to use for case study pull out
-caseStudyID <- "CA3966012280920200817"
+name <- "welty_wildfire_fri_splitfrg5"
+rasterForVizF <- paste0("gf_data_flatraster_", name, "_california_2010_2020.tif") # The name of the visualization raster in GDrive that you want to use for case study pull out
+caseStudyName <- "August Complex"
+
 
 # Color scheme
 rxCol <- col2hex("darkblue")
@@ -71,12 +73,13 @@ install_and_load_packages(c(
 #Ensure necessary directories are created
 figsDir <- here::here("figs")
 dir_ensure(figsDir)
-figsDir2 <- here::here("figs_v2")
+figsDir2 <- here::here(paste0("figs_", name))
 dir_ensure(figsDir2)
 figsDir <- figsDir2
 
 derivedDatDir <- here::here("data", "derived")
 dir_ensure(derivedDatDir)
+
 
 
 ```
@@ -91,14 +94,14 @@ epsg <- "EPSG:4326" #use WGS 84 for visualization
 
 #RX & GF summarized by state
 rxData <- readr::read_csv(here::here('data', 'derived', "twig_rx_state_summary_2010_2020.csv")) #from b02
-gfData <- readr::read_csv(here::here('data', 'derived', 'gf_data_combined_states_welty_wildfire_2010_2020.csv'))
+gfData <- readr::read_csv(here::here('data', 'derived', paste0('gf_data_combined_states_', name, '_2010_2020.csv')))
 
 # Prepped rx spatial data (b02)
 rxSpatial <- sf::st_read(here::here(derivedDatDir, 'twig_gee_filtered_ready_for_analysis.gpkg')) |>
   sf::st_transform(sf::st_crs(epsg))
 
 # Prepped gf spatial data (a03)
-gfSpatial <- sf::st_read(here::here(derivedDatDir, 'merged_goodfire_final_states_welty_wildfire.gpkg')) |>
+gfSpatial <- sf::st_read(here::here(derivedDatDir, paste0('merged_goodfire_final_states_', name, '.gpkg'))) |>
   sf::st_transform(sf::st_crs(epsg))
 
 ```
@@ -172,7 +175,7 @@ allData <- gfDataNew |>
                       names_to = "datNm",
                       values_to = "area")|>
   dplyr::mutate(datNmFull = dplyr::case_when(datNm == 'lowerGoodFire' ~ "Lower Severity \nGood Forest Wildfire",
-                                             datNm == 'rxBurn' ~ 'Prescribed \nForest Burns',
+                                             datNm == 'rxBurn' ~ 'Prescribed \n Burns',
                                              datNm == 'burnedForest' ~ 'Total Forest Wildfire',
                                              datNm == 'highGoodFire' ~ "High Severity Good Forest Wildfire",
                                              datNm == 'yearPriorForest' ~ 'Total Forest Prior')) |>
@@ -229,7 +232,7 @@ plotLabels <- c("Prescribed Burns", "High Severity Good Wildfire", "Lower Severi
 textSz <- 5.5
 #Needs different parameters since turned sideways
 plotColors2 <- c(totCol, gfHsCol, gFCol, rxCol)
-plotLabels2 <- c("Lower Severity Good Forest Wildfire", "Higher Severity Good Forest Wildfire", "Prescribed Forest Burns", "Total Forest Wildfire")
+plotLabels2 <- c("Lower Severity Good Forest Wildfire", "Higher Severity Good Forest Wildfire", "Prescribed Burns", "Total Forest Wildfire")
 
 
 overallGraphicData <- allSummary |>
@@ -318,7 +321,7 @@ stateGraphic <- ggplot2::ggplot(stateGraphicData)  +
   ylab(operatingUnits) +
   labs(title = "Good fire in Western U.S. forests by state") +
   scale_y_continuous(labels=comma,
-                     limits = c(0, 2000000)#,
+                     limits = c(0, 2005000)#,
                      # sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
                      #                     name = "Acres",
                      #                     labels = comma)
@@ -359,7 +362,7 @@ yearGraphic <- ggplot2::ggplot(yearGraphicData)  +
   ylab(operatingUnits) +
   labs(title = "Good fire in Western U.S. forests by year") +
   scale_y_continuous(labels=comma,
-                     limits = c(0, 2000000)#,
+                     limits = c(0, 2005000)#,
                      # sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
                      #                     name = "Acres",
                      #                     labels = comma)
@@ -444,36 +447,53 @@ x <- kableExtra::kable(mergedTable,
 # Summary Stats
 ```{r}
 nFires <- nrow(gfSpatial)
+nFires
 nRx <- sum(rxData$nEvents)
+nRx
 rxArea <- sum(rxData$rxBurnArea)
+rxArea
 highSevNum <- overallGraphicData |>
   dplyr::filter(datNm == "highGoodFire", ) |>
   dplyr::select('area') |>
   dplyr::pull()
+highSevNum
 lowerSevNum <- overallGraphicData |>
   dplyr::filter(datNm == "lowerGoodFire", ) |>
   dplyr::select('area') |>
   dplyr::pull()
+lowerSevNum
 totalWildfireNum <- overallGraphicData |>
   dplyr::filter(datNm == "burnedForest", ) |>
   dplyr::select('area') |>
   dplyr::pull()
+totalWildfireNum
 lowerGoodOfTot <- lowerSevNum / totalWildfireNum * 100
+lowerGoodOfTot
 highGoodOfTot <- highSevNum / totalWildfireNum * 100
+highGoodOfTot
 allGoodOfTot <- (lowerSevNum + highSevNum) / totalWildfireNum * 100
+allGoodOfTot
 
 
 
+lowerSevGFRxCompare <- ((lowerSevNum / rxArea) - 1) * 100
+lowerSevGFRxCompare
+lowerSevGFRxCompare2 <- (lowerSevNum / rxArea)
+lowerSevGFRxCompare2
+allSevGFRxCompare <- (((lowerSevNum + highSevNum) / rxArea) - 1) * 100
+allSevGFRxCompare
+allSevGFRxCompare2 <- (lowerSevNum + highSevNum) / rxArea
+allSevGFRxCompare2
 
-lowerSevGFRxCompare = ((lowerSevNum / rxArea) - 1) * 100
-allSevGFRxCompare = (((lowerSevNum + highSevNum) / rxArea) - 1) * 100
+tooFrequentOfAllBurns <- sum(gfData$tooFrequent) / totalWildfireNum * 100
+tooFrequentOfAllBurns
+tooFrequentOfGoodFire <- sum(gfData$tooFrequent) / (lowerSevNum + highSevNum) * 100
+tooFrequentOfGoodFire
 
-tooFrequentOfAllBurns = sum(gfData$tooFrequent) / totalWildfireNum * 100
-tooFrequentOfGoodFire = sum(gfData$tooFrequent) / (lowerSevNum + highSevNum) * 100
-
-frg5lowmix = sum(gfData$frg5GoodLowMod)
-frg5high = sum(gfData$frg5GoodHigh)
-frg5lowmix/(frg5high + frg5lowmix)
+frg5l = sum(gfData$frg5lGood)
+frg5h = sum(gfData$frg5hGood)
+percFrg5lOfAll5 <- frg5l/(frg5h + frg5l) * 100
+percFrg5lOfAll5
 
 # RX details
 
@@ -487,6 +507,7 @@ rxLowSevPerc <- ((rxByFRG |>
                     dplyr::filter(FRGDescription == "frcLowMix") |>
                     dplyr::pull(rxBurnArea)) / 
                   sum(rxByFRG$rxBurnArea)) * 100
+rxLowSevPerc
 
 rxBroadcastOfLowSev <- (rxSpatial |>
                           dplyr::group_by(FRGDescription, type) |>
@@ -497,7 +518,15 @@ rxBroadcastOfLowSev <- (rxSpatial |>
                         (rxByFRG |>
                         dplyr::filter(FRGDescription == "frcLowMix") |>
                         dplyr::pull(rxBurnArea))) * 100
+rxBroadcastOfLowSev
 
+rxBroadcastOfAllRx <- (rxSpatial |>
+                          dplyr::group_by(type) |>
+                          dplyr::summarise(tot_area = sum(TOTALACCOMPLISHMENT_FINAL)) |>
+                          dplyr::filter(type == "Broadcast Burn") |>
+                          dplyr::pull(tot_area)) / 
+                        (sum(rxByFRG$rxBurnArea)) * 100
+rxBroadcastOfAllRx
 
 ```
 
@@ -508,18 +537,30 @@ Prep data to display
 
 ```{r}
 
-#Use only the GF polygons that contain >10% forest pre-burn & create a combined good fire column
+
+#Pull in state data as context
+usa <- tigris::states(progress_bar = FALSE) |>
+  sf::st_transform(sf::st_crs(epsg))
+west <- usa[usa$STUSPS %in% c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT"),] 
+
+#Use only the GF polygons that contain >10% forest pre-burn in the western US & create a combined good fire column
+
+# gfSpatial <- gfSpatial[!sf::st_is_empty(gfSpatial), ]
+# sf::sf_use_s2(FALSE)
+# gfSpatial <- sf::st_buffer(gfSpatial, dist = 0)
+# gfSpatial <- sf::st_make_valid(gfSpatial)
+# sf::sf_use_s2(TRUE)
+
+
 gfSpatialForestOnly <- gfSpatial |>
+  #sf::st_make_valid() |>
   dplyr::mutate(percPreFor = (yearPriorForest / totalArea) * 100) |>
   dplyr::filter(percPreFor >= 10) |>
   dplyr::mutate(totalGoodFire = lowerGoodFire + highGoodFire,
                 totGoodPercForest = (totalGoodFire / yearPriorForest) * 100)
 
 
-#Pull in state data as context
-usa <- tigris::states(progress_bar = FALSE) |>
-  sf::st_transform(sf::st_crs(epsg))
-west <- usa[usa$STUSPS %in% c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT"),] 
+
 
 ```
 
@@ -559,7 +600,7 @@ m <- leaflet::leaflet() %>%
   leaflet::addCircles(data = rxSpatial2, lng = ~long, lat = ~lat, radius = ~radius, fillColor = rxCol, color = rxBCol, opacity = transparency, weight = strk, fillOpacity = transparency)
 
 # Display the map
-m
+# m
 ```
 
 ```{r}
@@ -592,7 +633,7 @@ create.plots <- function(goodFCol, lowGoodFCol, gfBCol, rxCol, rxBCol, transpare
     ggplot2::scale_size_continuous(
       labels = scales::label_comma(),
       limits = c(0, max(rxSpatial2$TOTALACCOMPLISHMENT_FINAL)),
-      name = paste0("Prescribed \nburn \n", tolower(operatingUnits)),
+      name = paste0("Prescribed \nburn \nforest \n", tolower(operatingUnits)),
       range = c(rngMin, rngMax))
   ggplot2::ggsave(filename = here::here(figsDir,
                         glue::glue('westwide_forestPerims_rxBubbles_{tm}_{operatingUnits}.png')),
@@ -636,11 +677,15 @@ col2hex(boundaryCol)
 
 ```{r}
 
+
+
 #load viz data
 visRasterLocalPath <- here::here(derivedDatDir, rasterForVizF)
 if(!file.exists(visRasterLocalPath)) {
   vizRasterGDrivePath <- paste0("~/", driveFolder, "/", rasterForVizF)
-  download_data_from_gdrive(vizRasterGDrivePath, visRasterLocalPath)
+  download_data_from_gdrive_v2(drive_folder = driveFolder,
+                               file_name = rasterForVizF,
+                               local_path = visRasterLocalPath)
 }
 rasterForViz <- terra::rast(visRasterLocalPath)
 
@@ -648,8 +693,10 @@ rasterForViz <- terra::rast(visRasterLocalPath)
 caseStudyState <- west[west$STUSPS %in% c("CA"),] |>
   sf::st_transform(terra::crs(rasterForViz))
 caseStudyBound <- gfSpatialForestOnly |>
-  dplyr::filter(DatasetID == caseStudyID) |>
+  filter(grepl(pattern = caseStudyName, Listed_F_1, ignore.case = TRUE)) |>
   sf::st_transform(terra::crs(rasterForViz))
+
+
 
 # Case study clips
 caseStudyR <- rasterForViz |>
@@ -663,19 +710,38 @@ caseStudyStateR <- rasterForViz |>
 
 # Create visualizations
 #case study fire
-caseStudyEventFig <- tmap::tm_shape(caseStudyR, raster.downsample = FALSE) +
-  tm_raster(palette = c(bgNeutralCol, gFCol, gfHsCol, totCol)) +
-  tmap::tm_shape(caseStudyBound) +
-  tmap::tm_borders(col = boundaryCol, lwd = 1) +
-  tmap::tm_layout(legend.show = FALSE,
-                  inner.margins = c(0.1, 0.02, 0.02, 0.02),
-                  frame = FALSE) +
-  tmap::tm_scale_bar(width = 0.5,
-                     position = c("right", "bottom"),
-                     color.dark = boundaryCol,
-                     text.size = 1.2)
-tmap::tmap_save(caseStudyEventFig,
-                here::here(figsDir, "case_study_fig_event.png"))
+caseStudyEventFig <-
+  tm_shape(caseStudyR, raster.downsample = FALSE) +
+  tm_raster(
+    # v4: move palette -> col.scale
+    col.scale = tm_scale(values = c(bgNeutralCol, gFCol, gfHsCol, totCol))
+  ) +
+  tm_shape(caseStudyBound) +
+  tm_borders(col = boundaryCol, lwd = 1) +
+  tm_legend(show = FALSE) +         # v4: turn legend off here
+  tm_layout(
+    inner.margins = c(0.1, 0.02, 0.02, 0.02),
+    frame = FALSE
+  ) +
+  tm_scalebar(                      # v4: use tm_scale_bar()
+    position   = c("right", "bottom"),
+    text.size  = 1.2,
+    color.dark = boundaryCol,
+    breaks = c(0, 10, 20, 30, 40)
+    # omit width to avoid the sbW bug; v4 will pick a sensible width
+  )
+
+# safer save (with basic error handling)
+ok <- tryCatch({
+  tmap_save(
+    caseStudyEventFig,
+    filename = here::here(figsDir, "case_study_fig_event.png")
+  )
+  TRUE
+}, error = function(e) {
+  message("tmap_save failed: ", conditionMessage(e))
+  FALSE
+})
 
 #case study state
 caseStudyStateFig <- tmap::tm_shape(caseStudyStateR, raster.downsample = FALSE) +

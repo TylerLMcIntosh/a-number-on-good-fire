@@ -30,7 +30,7 @@ if(!requireNamespace("here", quietly = TRUE)) {
 }
 library(here)
 
-source(here::here("code", "functions.R"))
+source(here::here("utils", "functions.R"))
 
 install_and_load_packages(c("sf",
                             "here",

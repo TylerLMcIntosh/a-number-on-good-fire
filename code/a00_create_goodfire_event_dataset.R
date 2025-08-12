@@ -42,25 +42,28 @@ welty_wf <- welty|>
 
 
 welty_wildfire_2010_2020 <- welty_wf |> 
-  dplyr::filter(Fire_Year >= 2010 & Fire_Year <= 2020)
+  dplyr::filter(Fire_Year >= 2010 & Fire_Year <= 2020) |>
+  sf::st_filter(west)
+  
 welty_wildfire_1984_2020 <- welty_wf |> 
-  dplyr::filter(Fire_Year >= 1984 & Fire_Year <= 2020)
+  dplyr::filter(Fire_Year >= 1984 & Fire_Year <= 2020) |>
+  sf::st_filter(west)
 
 
 # Write files
-# flnm <- here::here(dir_derived, "welty_wildfire_2010_2020.gpkg")
-# sf::st_write(welty_wildfire_2010_2020, flnm, append = FALSE)
-# st_write_shp(shp = welty_wildfire_2010_2020,
-#              location = dir_derived,
-#              filename = "welty_wildfire_2010_2020",
-#              zip_only = TRUE,
-#              overwrite = TRUE)
+flnm <- here::here(dir_derived, "welty_wildfire_west_2010_2020.gpkg")
+sf::st_write(welty_wildfire_2010_2020, flnm, append = FALSE)
+st_write_shp(shp = welty_wildfire_2010_2020,
+             location = dir_derived,
+             filename = "welty_wildfire_west_2010_2020",
+             zip_only = TRUE,
+             overwrite = TRUE)
 
-flnm <- here::here(dir_derived, "welty_wildfire_1984_2020.gpkg")
+flnm <- here::here(dir_derived, "welty_wildfire_west_1984_2020.gpkg")
 sf::st_write(welty_wildfire_1984_2020, flnm, append = FALSE)
 st_write_shp(shp = welty_wildfire_1984_2020,
              location = dir_derived,
-             filename = "welty_wildfire_1984_2020",
+             filename = "welty_wildfire_west_1984_2020",
              zip_only = TRUE,
              overwrite = TRUE)
 

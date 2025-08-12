@@ -180,7 +180,9 @@ rxInterest <- rxWithGEE |>
     (LCMS_PreBurnYear == 1 & LCMAP_PreBurnYear == 4) |
       (LCMS_PreBurnYear == 1 & is.na(LCMAP_PreBurnYear)) |
       (is.na(LCMS_PreBurnYear) & LCMAP_PreBurnYear == 4)
-  )
+  ) |>
+  dplyr::filter(trt_yr %in% years_of_interest)
+
 
 
 sf::st_write(rxInterest, here::here(derivedDatDir, "twig_gee_filtered_ready_for_analysis.gpkg"), append = FALSE)
