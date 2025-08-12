@@ -146,6 +146,72 @@ twig_intentional_filtered <- twig_intentional_filtered |>
 ```
 
 
+# Get numbers comparing Fire Use with other RX & wildfire overlap
+```{r}
+
+rx_type_list2 <- c("Hand Pile Burn",
+                  "Machine Pile Burn",
+                  "Broadcast Burn",
+                  "Fire Use",
+                  "Jackpot Burn")
+
+twig_intentional_filtered_2 <- twig |>
+  dplyr::filter((is.na(error) |
+                  (error != "DUPLICATE-DROP" &
+                     error != "HIGH_COST;DUPLICATE-DROP")) &
+                state %in% state_list &
+                ((twig_category == "Planned Ignition" &
+                   type == "N/A") |
+                   type %in% rx_type_list2) &
+                !is.na(actual_completion_date)) |>
+  dplyr::mutate(treatment_year = lubridate::year(actual_completion_date)) |>
+  sf::st_make_valid() |>
+  dplyr::filter(treatment_year %in% seq(2010, 2020))
+
+
+fire_use <- twig_intentional_filtered_2 |> filter(type == "Fire Use")
+
+#Percent of acres in 'fire use'
+all_twig_filt <- sum(twig_intentional_filtered_2$acres)
+twig_filt_fire_use <- sum(fire_use$acres)
+fire_use_perc_of_twig_2010_2020 <- (twig_filt_fire_use / all_twig_filt) * 100
+fire_use_perc_of_twig_2010_2020
+
+
+# Compare to wildfires
+fire_flnm <- here::here(dir_derived, "welty_wildfire_west_2010_2020.gpkg")
+if(!file.exists(fire_flnm)) {
+  stop("Please run the welty data script first to create the filtered wildfire dataset.")
+} else {
+  fires <- sf::st_read(fire_flnm) |>
+    sf::st_transform(sf::st_crs(twig_intentional_filtered_2))
+}
+
+
+# Get overlap of fire use with wildfires as percentage of all fire use
+overlap_pct <- function(fires, fire_use) {
+  # Union to avoid double-counting overlaps within each set
+  fires_u <- st_union(st_geometry(fires))
+  
+  use_u   <- st_union(st_geometry(fire_use))
+  # Intersection (handle empty case)
+  inter <- try(st_intersection(fires_u, use_u), silent = TRUE)
+  if (inherits(inter, "try-error") || length(inter) == 0 || all(st_is_empty(inter))) {
+    return(0)
+  }
+
+  fire_use_area   <- as.numeric(st_area(use_u))
+  overlap_area <- as.numeric(st_area(inter))
+  if (fire_use_area == 0) stop("Total fire use area is zero after processing.")
+  100 * overlap_area / fire_use_area
+}
+
+fufOverlap_perc_fu <- overlap_pct(fires = fires, fire_use = fire_use)
+fufOverlap_perc_fu
+
+```
+
+
 # create centroids version
 DOES NOT fix the overlap issue and re-calculate area -- this actually appears to be a fairly isolated issue in some of the National Parks.
 

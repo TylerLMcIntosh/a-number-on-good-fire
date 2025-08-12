@@ -471,10 +471,14 @@ lowerGoodOfTot <- lowerSevNum / totalWildfireNum * 100
 lowerGoodOfTot
 highGoodOfTot <- highSevNum / totalWildfireNum * 100
 highGoodOfTot
-allGoodOfTot <- (lowerSevNum + highSevNum) / totalWildfireNum * 100
+
+allGood <- lowerSevNum + highSevNum
+allGood
+allGoodOfTot <- allGood / totalWildfireNum * 100
 allGoodOfTot
 
-
+lowerGoodPerYear <- lowerSevNum / 11
+lowerGoodPerYear
 
 lowerSevGFRxCompare <- ((lowerSevNum / rxArea) - 1) * 100
 lowerSevGFRxCompare
@@ -494,6 +498,11 @@ frg5l = sum(gfData$frg5lGood)
 frg5h = sum(gfData$frg5hGood)
 percFrg5lOfAll5 <- frg5l/(frg5h + frg5l) * 100
 percFrg5lOfAll5
+
+# By state
+stateSummaryComparison <- stateTable |>
+  mutate(comparison = lowerGoodFire / rxBurn)
+
 
 # RX details
 
@@ -629,6 +638,7 @@ create.plots <- function(goodFCol, lowGoodFCol, gfBCol, rxCol, rxBCol, transpare
           panel.border = element_blank(),
           panel.background = element_rect(fill = "transparent"),
           legend.spacing.y = ggplot2::unit(0.6, 'cm'),
+          legend.key = element_rect(fill = NA, colour = NA),
           text = element_text(family = "Arial", size = 12, lineheight = 1.15)) +
     ggplot2::scale_size_continuous(
       labels = scales::label_comma(),
