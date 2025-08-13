@@ -512,10 +512,13 @@ rxByFRG <- rxData |>
                    rxBurnArea = sum(rxBurnArea)) |>
   dplyr::ungroup()
 
-rxLowSevPerc <- ((rxByFRG |>
+rxLowSev <- ((rxByFRG |>
                     dplyr::filter(FRGDescription == "frcLowMix") |>
-                    dplyr::pull(rxBurnArea)) / 
-                  sum(rxByFRG$rxBurnArea)) * 100
+                    dplyr::pull(rxBurnArea)))
+rxLowSev
+
+rxLowSevPerc <-  rxLowSev / 
+                  rxArea * 100
 rxLowSevPerc
 
 rxBroadcastOfLowSev <- (rxSpatial |>
@@ -536,6 +539,16 @@ rxBroadcastOfAllRx <- (rxSpatial |>
                           dplyr::pull(tot_area)) / 
                         (sum(rxByFRG$rxBurnArea)) * 100
 rxBroadcastOfAllRx
+
+
+nRxByFRG <- rxSpatial |>
+    dplyr::group_by(FRGDescription) |>
+    dplyr::summarise(n = n())
+
+strictLowSev_RxGWF_comparison <- lowerSevNum / rxLowSev
+
+
+
 
 ```
 
