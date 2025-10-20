@@ -36,6 +36,7 @@ install_and_load_packages(c("sf",
                             "here",
                             "httr",
                             "glue",
+                            "tigris",
                             "patchwork",
                             "tidyverse"))
 
@@ -219,7 +220,6 @@ DOES NOT fix the overlap issue and re-calculate area -- this actually appears to
 
 library(sf)
 library(dplyr)
-library(igraph)
 
 
 
@@ -304,20 +304,25 @@ twig_intentional_filtered_centroids <- twig_intentional_filtered |>
 
 ```{r}
 
+today <- format(Sys.Date(), "%Y%m%d")
+
 sf::st_write(twig_intentional_filtered,
-             here::here(dir_derived, "twig_planned_ignition_no_dup_west.gpkg"),
+             here::here(dir_derived, glue( "twig_planned_ignition_no_dup_west_{today}.gpkg")),
              append = FALSE)
 
 sf::st_write(twig_intentional_filtered,
-             here::here(dir_derived, "twig_planned_ignition_no_dup_west_centroids.gpkg"),
+             here::here(dir_derived, glue("twig_planned_ignition_no_dup_west_centroids_{today}.gpkg")),
              append = FALSE)
 st_write_shp(shp = twig_intentional_filtered_centroids |>
                select(unique_id, treatment_year) |>
                rename(trt_yr = treatment_year),
              location = dir_derived,
-             filename = "twig_planned_ignition_no_dup_west_centroids_simple",
+             filename = glue("twig_planned_ignition_no_dup_west_centroids_simple_{today}"),
              zip_only = TRUE,
              overwrite = TRUE)
+
+
+
 
 ```
 
