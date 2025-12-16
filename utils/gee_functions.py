@@ -64,10 +64,10 @@ def _download_file_from_drive(file_id, file_name, temp_dir, service_account_file
             while not done:
                 status, done = downloader.next_chunk()
         time.sleep(random.uniform(0.5, 1.5))  # Random delay
-        print(f"⬇️ Downloaded {file_name}")
+        print(f"⬇Downloaded {file_name}")
         return local_path
     except Exception as e:
-        print(f"⚠️ Error downloading {file_name}: {e}")
+        print(f"Error downloading {file_name}: {e}")
         return None
 
 
@@ -82,7 +82,7 @@ def download_merge_from_drive(
 ) -> str:
     local_filename = os.path.abspath(local_filename)
     if check_existing and os.path.exists(local_filename):
-        print(f"✅ File already exists: {local_filename}")
+        print(f"File already exists: {local_filename}")
         return local_filename
 
     temp_dir = tempfile.mkdtemp()
@@ -101,7 +101,7 @@ def download_merge_from_drive(
         ).execute()
         folders = folder_results.get('files', [])
         if not folders:
-            raise FileNotFoundError(f"❌ Folder '{drive_folder}' not found or not shared with service account.")
+            raise FileNotFoundError(f"Folder '{drive_folder}' not found or not shared with service account.")
         folder_id = folders[0]['id']
 
         file_results = service.files().list(
@@ -110,9 +110,9 @@ def download_merge_from_drive(
         ).execute()
         files = file_results.get('files', [])
         if not files:
-            raise FileNotFoundError(f"❌ No matching .tif files found for '{description}' in '{drive_folder}'.")
+            raise FileNotFoundError(f"No matching .tif files found for '{description}' in '{drive_folder}'.")
 
-        print(f"📁 Found {len(files)} files. Starting download...")
+        print(f"Found {len(files)} files. Starting download...")
 
         downloaded_paths = []
         if n_workers == 1:
@@ -137,11 +137,11 @@ def download_merge_from_drive(
 
         mosaic = merge_arrays(datasets)
         mosaic.rio.to_raster(local_filename, compress=compress)
-        print(f"✅ Final merged GeoTIFF saved to: {local_filename}")
+        print(f"Final merged GeoTIFF saved to: {local_filename}")
         return local_filename
 
     except KeyboardInterrupt:
-        print("⚠️ Interrupted by user. Cleaning up and exiting.")
+        print("Interrupted by user. Cleaning up and exiting.")
         raise
 
     finally:
@@ -150,9 +150,9 @@ def download_merge_from_drive(
                 ds.close()
         try:
             shutil.rmtree(temp_dir)
-            print(f"🧹 Cleaned up temporary directory: {temp_dir}")
+            print(f"Cleaned up temporary directory: {temp_dir}")
         except Exception as cleanup_err:
-            print(f"⚠️ Error during cleanup: {cleanup_err}")
+            print(f"Error during cleanup: {cleanup_err}")
 
 def export_image_to_drive_and_download(
     image: ee.Image,
@@ -169,7 +169,7 @@ def export_image_to_drive_and_download(
 ) -> str:
     local_filename = os.path.abspath(local_filename)
     if check_existing and os.path.exists(local_filename):
-        print(f"✅ File already exists: {local_filename}")
+        print(f"File already exists: {local_filename}")
         return local_filename
 
     task = ee.batch.Export.image.toDrive(
@@ -182,17 +182,17 @@ def export_image_to_drive_and_download(
         maxPixels=1e13
     )
     task.start()
-    print(f"🚀 Started Earth Engine export: {description}")
+    print(f"Started Earth Engine export: {description}")
 
     while task.active():
-        print("⏳ Waiting for Earth Engine export to finish...")
+        print("Waiting for Earth Engine export to finish...")
         time.sleep(wait_interval)
 
     status = task.status()
     if status["state"] != "COMPLETED":
-        raise RuntimeError(f"❌ Export failed: {status}")
+        raise RuntimeError(f"Export failed: {status}")
 
-    print("✅ Earth Engine export complete. Downloading from Drive...")
+    print("Earth Engine export complete. Downloading from Drive...")
 
     return download_merge_from_drive(
         description=description,

@@ -144,8 +144,32 @@ twig_intentional_filtered <- twig_intentional_filtered |>
   sf::st_filter(states_interest)
 
 
+
 ```
 
+```{r}
+# Check against Jay's filtering
+
+x <- twig_intentional_filtered |>
+  dplyr::filter(treatment_year %in% seq(2010, 2020))
+
+
+dup_cols <- c('name', 'treatment_date', 'twig_category', 'acres')
+xx <- x %>% 
+  sf::st_drop_geometry() %>%
+  mutate(across(everything(), ~ ifelse(. %in% c('', ' ', 'N/A', 'NA', 'Not Applicable'), NA, .))) %>%
+  filter(date_source %in% c('date_completed', 'act_comp_dt')) %>%   # needs to be either 'date_completed' or 'act_comp_dt' (different source codes for completion)
+  distinct(unique_id, .keep_all = T) %>%
+  filter(error %in% c(NA, 'DUPLICATE-KEEP')) %>%
+  distinct(across(all_of(dup_cols)), .keep_all = T) %>%
+  mutate(treatment_date = as.POSIXct(actual_completion_date, tz = 'UTC')) %>% # converted back to epoch time for some reason
+  mutate(across(c(date_current, actual_completion_date), function(x) as.POSIXct(x, tz = 'UTC'))) %>%
+  filter(treatment_date < as.Date("2026-01-01"))
+
+maximum_filter_error <- (sum(x$acres) - sum(xx$acres)) * 0.40468564224
+# Maximum error between Jay's filtering and ours is ~20,000 HA, ~1.6%. Guaranteed to be less than this with additional filtering to forest.
+
+```
 
 # Get numbers comparing Fire Use with other RX & wildfire overlap
 ```{r}
@@ -171,13 +195,43 @@ twig_intentional_filtered_2 <- twig |>
 
 
 fire_use <- twig_intentional_filtered_2 |> filter(type == "Fire Use")
+fu2 <- fire_use |>
+  st_drop_geometry() %>%
+  mutate(across(everything(), ~ ifelse(. %in% c('', ' ', 'N/A', 'NA', 'Not Applicable'), NA, .))) %>%
+  filter(date_source %in% c('date_completed', 'act_comp_dt')) %>%   # needs to be either 'date_completed' or 'act_comp_dt' (different source codes for completion)
+  distinct(unique_id, .keep_all = T) %>%
+  filter(error %in% c(NA, 'DUPLICATE-KEEP')) %>%
+  distinct(across(all_of(dup_cols)), .keep_all = T) %>%
+  mutate(treatment_date = as.POSIXct(actual_completion_date, tz = 'UTC')) %>% # converted back to epoch time for some reason
+  mutate(across(c(date_current, actual_completion_date), function(x) as.POSIXct(x, tz = 'UTC'))) %>%
+  filter(treatment_date < as.Date("2026-01-01"))
+  
 
 #Percent of acres in 'fire use'
 all_twig_filt <- sum(twig_intentional_filtered_2$acres)
 twig_filt_fire_use <- sum(fire_use$acres)
+twig_filt_fire_use2 <- sum(fu2$acres)
+
 fire_use_perc_of_twig_2010_2020 <- (twig_filt_fire_use / all_twig_filt) * 100
 fire_use_perc_of_twig_2010_2020
 
+fu2 <- fu2 |>
+  mutate(hectares = acres * 0.40468564224)
+
+fu_by_type <- fu2 |>
+  group_by(activity) |>
+  summarize(
+    n        = n(),
+    hectares = sum(hectares),
+    .groups  = "drop"
+  ) |>
+  mutate(
+    pct_n        = (n / sum(n)) * 100,
+    pct_hectares = (hectares / sum(hectares)) * 100
+  ) |>
+  mutate(
+    across(c(n, hectares, pct_n, pct_hectares), ~ format(., scientific = FALSE))
+  )
 
 # Compare to wildfires
 fire_flnm <- here::here(dir_derived, "welty_wildfire_west_2010_2020.gpkg")
