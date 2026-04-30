@@ -29,6 +29,7 @@ install_and_load_packages(c(
   "patchwork",
   "purrr",
   "grid",
+  "ggpattern",
   "scales")) #add commas to axis
 
 
@@ -201,14 +202,16 @@ make_colored_density_plots <- function(dats, totCol, gFCol) {
       limits = x_rng,
       guide = "none"
     ) +
-    labs(y = "Event Density") +
+    labs(y = "Event Density", x = "\nPercent burned forest impacted by good wildfire") +
     theme_void() +
     theme(
       axis.text.x = element_text(),
+      axis.text.y = element_text(),
       axis.ticks.x = element_line(),
-      axis.title.y = element_text(angle = 90)
+      axis.title.y = element_text(angle = 90),
+      axis.title.x = element_text(angle = 0)
     ) +
-    scale_y_continuous(limits = c(0, NA))
+    scale_y_continuous(limits = c(0, NA), labels = scales::label_number(accuracy = 0.01))
   
   p_facet <- ggplot(dens_facet, aes(x = x, y = y, color = x, group = NAME)) +
     geom_line(linewidth = 0.9) +
@@ -233,17 +236,17 @@ make_colored_density_plots <- function(dats, totCol, gFCol) {
     ) +
     scale_y_continuous(limits = c(0, NA))
   
-  x_lab <- wrap_elements(
-    grid::textGrob(
-      "Percent of burned forest impacted by good wildfire",
-      gp = grid::gpar(fontsize = 11)
-    )
-  )
+  # x_lab <- wrap_elements(
+  #   grid::textGrob(
+  #     "Percent of burned forest impacted by good wildfire",
+  #     gp = grid::gpar(fontsize = 11)
+  #   )
+  #)
   
   p_combined <- ((p_all + p_facet) +
-                   plot_layout(widths = c(3, 1))) /
-    x_lab +
-    plot_layout(heights = c(20, 1))
+                   plot_layout(widths = c(3, 1))) #/
+    #x_lab +
+    #plot_layout(heights = c(20, 1))
   
   return(list(combined = p_combined, all = p_all, facet = p_facet))
 }
@@ -284,9 +287,17 @@ ggplot(dats |> filter(perc_forest >= 10)) +
 
 scatter <- ggplot(dats |> filter(perc_forest >= 10 & GIS_Hectar > 0)) +
   geom_point(aes(x = perc_gf, y = GIS_Hectar, color = perc_gf), alpha = 0.4) +
-  scale_y_continuous(trans = "log10", labels = scales::comma) +
+  scale_y_continuous(trans = "log10",
+                       labels = function(x) {
+                         ifelse(
+                           x < 1,
+                           scales::number(x, accuracy = 0.01),  # keep decimals
+                           scales::number(x, accuracy = 1, big.mark = ",")  # whole numbers
+                         )
+                       }
+                     ) +
   theme_void() +
-  labs(y = "Fire size\n(log-transformed hectares)"#,
+  labs(y = "Fire size (ha)"#,
        #x = "Percent of burned forest impacted by good wildfire"
        ) +
   geom_smooth(aes(x = perc_gf, y = GIS_Hectar), method = "lm", formula = y ~ poly(x,2), color = "black") +
@@ -297,12 +308,13 @@ scatter <- ggplot(dats |> filter(perc_forest >= 10 & GIS_Hectar > 0)) +
   ) +
   theme(
     axis.text.x = element_text(),
-    axis.ticks.y = element_line(),
+    axis.text.y = element_text(),
+    #axis.ticks.y = element_line(),
     axis.title.y = element_text(angle = 90)
   )
 scatter
 
-
+forest_p_color$all
 
 x_lab <- wrap_elements(
   grid::textGrob(
@@ -312,9 +324,9 @@ x_lab <- wrap_elements(
 )
 
 p_combined <- (((scatter / forest_p_color$all) | forest_p_color$facet) +
-                 plot_layout(widths = c(3, 1))) /
-  x_lab +
-  plot_layout(heights = c(20, 1))
+                 plot_layout(widths = c(3, 1))) #/
+  #x_lab +
+  #plot_layout(heights = c(20, 1))
 p_combined
 ggsave(filename = here(dir_figs, "density_min10percentforested_events_color_with_scatter.png"),
        plot = p_combined,
@@ -371,14 +383,14 @@ dats_cum <- dats_forest |>
 
 
 cumulative_p <- ggplot(dats_cum, aes(x = perc_gf, y = cum_prop, color = perc_gf)) +
-  geom_line(linewidth = 1.2) +
+  geom_line(linewidth = 2) +
   scale_x_reverse() +
   scale_color_gradient(
     low = totCol,
     high = gFCol
   ) +
   labs(
-    x = "Event percent of burned forest impacted by good wildfire (high → low)",
+    x = "Percent of burned forest impacted by good wildfire (per event, high → low)",
     y = "Cumulative proportion of forested good wildfire area"
   ) +
   theme_minimal() +
@@ -399,8 +411,21 @@ ggsave(filename = here(dir_figs, "cumulative_plot.png"),
        height = 1500)
 
 gwf75 <- dats_forest |> filter(perc_gf >= 75)
+mean(gwf75$GIS_Hectar)
+median(gwf75$GIS_Hectar)
+
 gwf50_75 <- dats_forest |> filter(perc_gf < 75 & perc_gf >= 50)
 gwf25_50 <- dats_forest |> filter(perc_gf < 50 & perc_gf >= 25)
+
+nrow(gwf75) / nrow(dats_forest)
+nrow(gwf50_75) / nrow(dats_forest)
+
+sum(gwf75$lowerGoodFire) / sum(gwf75$goodFireAll)
+sum(gwf50_75$lowerGoodFire) / sum(gwf50_75$goodFireAll)
+
+sum(gwf75$goodFireAll) * 0.1 * 0.0001 #10% increase in size converted to hectares
+
+((sum(gwf50_75$tooFrequent) + sum(gwf50_75$unmatchedRegime))) * 0.1 * 0.0001 #10% increase in size converted to hectares
 
 
 # RAW 75
@@ -426,10 +451,11 @@ ggsave(filename = here(dir_figs, "stusps_gwf75.png"),
 
 
 
-state_gwf75_props <- dats_forest |>
+state_gwf75 <- dats_forest |>
   count(STUSPS, name = "n_total") |>
   left_join(
     gwf75 |>
+      sf::st_drop_geometry() |>
       count(STUSPS, name = "n_gwf75"),
     by = "STUSPS"
   ) |>
@@ -438,24 +464,72 @@ state_gwf75_props <- dats_forest |>
     pct_gwf75 = 100 * n_gwf75 / n_total
   )
 
-stusps_gwf75_pct <- ggplot(state_gwf75_props) +
-  geom_col(aes(x = STUSPS, y = pct_gwf75), fill = gFCol) +
-  theme_void() +
-  theme(
-    axis.text.x = element_text(),
-    axis.text.y = element_text()
+scale_factor <- max(state_gwf75$n_gwf75, na.rm = TRUE) / 
+  max(state_gwf75$pct_gwf75, na.rm = TRUE)
+
+
+state_gwf75 <- state_gwf75 |>
+  mutate(
+    pct_plot = -pct_gwf75 * scale_factor
   )
 
-ggsave(
-  filename = here(dir_figs, "stusps_gwf75_pct.png"),
-  plot = stusps_gwf75_pct,
-  units = "px",
-  width = 1000,
-  height = 750,
-  bg = "white"
-)
 
+stusps_gwf75_mirror <- ggplot(state_gwf75, aes(x = STUSPS)) +
+  geom_col_pattern(
+    aes(y = n_gwf75),
+    fill = gFCol,
+    color = gFCol,
+    pattern = "none",
+    width = 0.8
+  ) +
+  geom_col_pattern(
+    aes(y = pct_plot),
+    fill = "white",
+    color = gFCol,
+    pattern = "stripe",
+    pattern_fill = gFCol,
+    pattern_color = gFCol,
+    pattern_angle = 45,
+    pattern_density = 0.2,
+    pattern_spacing = 0.02,
+    width = 0.8
+  ) +
+  scale_y_continuous(
+    name = "Number of events",
+    labels = function(x) ifelse(x >= 0, comma(x), ""),
+    sec.axis = sec_axis(
+      ~ -. / scale_factor,
+      name = "Percentage of events (%)",
+      labels = function(x) ifelse(x >= 0, paste0(round(x), "%"), "")
+    )
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.line.x = element_line(color = "black"),
+    axis.ticks.x = element_line(color = "black"),
+    axis.title.x = element_blank(),
+    axis.title.y.left = element_blank(),
+    axis.title.y.right = element_blank()
+    # axis.title.y.left = element_text(
+    #   angle = 90,
+    #   hjust = 0.02   # push upward (increase to move further up)
+    # ),
+    # axis.title.y.right = element_text(
+    #   angle = -90,
+    #   hjust = -0.02  # push downward (more negative = lower)
+    # )
+  )
 
+stusps_gwf75_mirror
+
+ggsave(filename = here(dir_figs, "stusps_stusps_gwf75_mirror.png"),
+       plot = stusps_gwf75_mirror,
+       units = "px",
+       width = 800,
+       height = 750,
+       bg = "white")
 
 
 

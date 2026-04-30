@@ -5,6 +5,11 @@ library(data.table)
 # USER SETTINGS
 # =========================================================
 
+
+# GEE Burned GEDI data download: https://code.earthengine.google.com/8846e386239ff59a3635d0c95143fb15
+# GEE Unburned GEDI data download : https://code.earthengine.google.com/5eb6cb472f9e623df3f6da4db968e35c
+
+
 # Folder with point CSV files
 csv_dir <- "/data-store/iplant/home/nilangakoon/Fire_recovery/good_fire/new_data/burned_cor"
 
@@ -272,7 +277,7 @@ cat("Done.\n")
 #Unburned
 #######################################################
 
-unburned <- read.csv("/data-store/iplant/home/nilangakoon/Fire_recovery/good_fire/new_data/unburned/GEDI_all_unburned.csv")
+unburned <- read.csv("/data-store/iplant/home/nilangakoon/Fire_recovery/good_fire/GEDI_all_unburned_41_42_43.csv")
 unburned$severity <- "unburned"
 
 library(data.table)
